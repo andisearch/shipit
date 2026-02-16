@@ -1,109 +1,189 @@
+# Anthropic Python SDK — Product Briefing
 
+## What the project does
 
-# ShipIt — Product Briefing
+The Anthropic Python SDK (`anthropic`) provides typed, convenient access to the Anthropic REST API from Python 3.9+ applications. It covers the full Messages API surface — including streaming, tool use, message batches, token counting, and structured outputs — with both synchronous and asynchronous clients powered by httpx. The SDK also ships dedicated clients for AWS Bedrock and Google Vertex AI deployments.
 
-## What the Project Does
+## Key features
 
-ShipIt is a bash-based CLI tool that reads a code repository's context (README, CHANGELOG, git log, package manifests) and generates platform-specific launch content across five channels: release notes, blog post, X/Twitter thread, LinkedIn post, and Reddit post. It orchestrates a pipeline of executable markdown scripts, each powered by Claude Opus 4.6 via AIRun, and optionally opens drafts in Chrome for review or direct posting.
+- **Sync and async clients** — `Anthropic` and `AsyncAnthropic` with identical APIs; async supports both httpx and aiohttp backends
+- **Streaming responses** — SSE-based streaming via `stream=True` or the higher-level `client.messages.stream()` helper with text accumulation and SDK-specific events
+- **Tool use (function calling)** — First-class support for defining tools, including a `@beta_tool` decorator for pure Python functions and an auto-running tool runner (`client.beta.messages.tool_runner()`)
+- **Structured outputs** — `output_config` support for constraining model responses to JSON schemas
+- **Message Batches API** — Create, poll, and retrieve results from batch message requests under `client.messages.batches`
+- **Token counting** — `client.messages.count_tokens()` endpoint for pre-flight token estimation
+- **Adaptive thinking** — Support for extended thinking / reasoning traces in Claude Opus 4.6
+- **Fast mode** — Speed parameter support for Claude Opus 4.6
+- **AWS Bedrock integration** — `AnthropicBedrock` client with automatic AWS auth, region inference, and profile support
+- **Google Vertex AI integration** — `AnthropicVertex` / `AsyncAnthropicVertex` with Google credential management and global region endpoint support
+- **File uploads** — `client.beta.files.upload()` accepting bytes, PathLike, or (filename, contents, media_type) tuples
+- **Typed request/response models** — Full TypedDict params and Pydantic response models with `to_json()` / `to_dict()` helpers
+- **Auto-pagination** — Iterator-based pagination for list endpoints
+- **Retries and timeouts** — Configurable exponential backoff (default 2 retries), customizable timeouts (default 10 minutes), TCP keepalive
+- **Raw response access** — `.with_raw_response` and `.with_streaming_response` for header inspection and lazy body reading
 
-## Key Features
+## How it works
 
-- **One-command launch content** — Run `./shipit ~/projects/my-app` to generate content for all five channels from a single repo
-- **GitHub URL support** — Accepts GitHub URLs directly; shallow-clones to a temp directory and cleans up after
-- **Channel selection** — Generate for specific platforms with `--channels x,linkedin`
-- **Focus mode** — Direct the analyst to emphasize a specific feature or angle with `--focus "topic"`
-- **Git-aware diffing** — Analyze changes since a tag or date with `--since v1.2.0`
-- **AI writing quality review** — A dedicated review stage checks generated content for AI writing tells (vocabulary flags, structural patterns) and corrects them
-- **Chrome integration** — `--open` fills compose UIs in separate Chrome tabs for review; `--dangerously-post` posts directly
-- **Executable markdown architecture** — Each pipeline stage is a `.md` file with a shebang, composable with Unix pipes
-- **Streaming output** — `--live` flag streams generation in real-time
+**Architecture:** The SDK is generated via Stainless and wraps the Anthropic REST API. It uses httpx as the default HTTP transport, with an optional aiohttp backend for async. Request parameters are typed as `TypedDict`s; responses are Pydantic models. The client handles auth headers (`x-api-key`), versioning (`anthropic-version: 2023-06-01`), retries, and streaming internally.
 
-## How It Works
+**Execution model:** Sync calls block; async calls use `asyncio`. Streaming uses Server-Sent Events. The `messages.stream()` helper accumulates content blocks and emits SDK-level events (text deltas, tool use blocks, thinking blocks). The tool runner loops API calls automatically when Claude requests tool invocations.
 
-ShipIt is a bash orchestrator (`shipit`) that pipes data between standalone AI scripts. The pipeline has four stages:
+**Dependencies:** httpx (>=0.25.0), pydantic (>=1.9.0), typing-extensions (>=4.10), anyio (>=3.5.0), distro, sniffio, jiter (>=0.4.0), docstring-parser (>=0.15). Optional extras: `aiohttp` (aiohttp + httpx_aiohttp), `vertex` (google-auth), `bedrock` (boto3 + botocore).
 
-1. **Analyze** (`analyze.md`) — Reads repo context (README, manifests, git log) and produces a structured briefing
-2. **Generate** (5 channel scripts) — Each receives the briefing via stdin and generates platform-specific content: `release-notes.md`, `blog-post.md`, `x-thread.md`, `linkedin-post.md`, `reddit-post.md`
-3. **Review** (`review.md`) — Checks each output for AI writing tells and corrects them
-4. **Post** (`post.md`) — Opens drafts in Chrome compose UIs or posts live
+**Current version:** 0.79.0 (released 2026-02-07)
 
-Scripts communicate through `=== SECTION: ===` delimited stdin payloads. Each script is an executable markdown file that runs through AIRun with Claude Opus 4.6. Output lands in `./output/` as individual markdown files.
+## Installation & usage
 
-**Dependencies:**
-- Claude Code (`claude` CLI)
-- AIRun (`ai` CLI) — executable markdown runtime
-- Chrome + Claude in Chrome extension (for `--open` / `--dangerously-post`)
-
-## Installation & Usage
-
-```bash
-# Prerequisites
-curl -fsSL https://claude.ai/install.sh | bash   # Claude Code
-git clone https://github.com/andisearch/airun.git && cd airun && ./setup.sh  # AIRun
-
-# Clone ShipIt
-git clone https://github.com/andisearch/shipit.git
-cd shipit
-
-# Basic usage — generate all channels
-./shipit ~/projects/my-app --live
-
-# GitHub URL
-./shipit https://github.com/andisearch/airun
-
-# Specific channels only
-./shipit ~/projects/my-app --channels x,linkedin
-
-# Focus on a topic
-./shipit ~/projects/my-app --focus "the new plugin system"
-
-# Changes since a tag
-./shipit ~/projects/my-app --since v1.2.0 --focus "performance improvements"
-
-# Open in Chrome for review
-./shipit ~/projects/my-app --live --open --accounts x,linkedin
-
-# Post directly
-./shipit ~/projects/my-app --live --dangerously-post --accounts x,linkedin
+```sh
+pip install anthropic
+# Optional backends:
+pip install anthropic[aiohttp]
+pip install anthropic[bedrock]
+pip install anthropic[vertex]
 ```
 
-**Output structure:**
-```
-output/
-  briefing.md     # Structured repo analysis
-  notes.md        # Release notes
-  blog.md         # Blog post
-  x.md            # X/Twitter thread
-  linkedin.md     # LinkedIn post
-  reddit.md       # Reddit post
+Set your API key:
+```sh
+export ANTHROPIC_API_KEY="my-anthropic-api-key"
 ```
 
-## What's New
+Basic message creation:
+```python
+from anthropic import Anthropic
 
-Based on recent commits:
-
-- **Initial pipeline release** — Full orchestrator with 7 AI scripts (analyze, 5 channels, review, post) and example outputs
-- **Project documentation** — CLAUDE.md with architecture overview and development conventions
-- **Expanded README** — Detailed setup instructions, usage examples, architecture explanation, and CLI reference
-
-## Code Examples
-
-**Generate all launch content for a local repo:**
-```bash
-./shipit ~/projects/my-app --live
+client = Anthropic()
+message = client.messages.create(
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello, Claude"}],
+    model="claude-sonnet-4-5-20250929",
+)
+print(message.content)
 ```
 
-**Generate only X and LinkedIn posts, focused on a specific feature:**
-```bash
-./shipit ~/projects/my-app --channels x,linkedin --focus "the new plugin system"
+## What's new
+
+**v0.79.0 (2026-02-07)**
+- Enabled fast-mode parameter for Claude Opus 4.6
+- Fixed speed parameter passthrough in sync beta `count_tokens`
+
+**v0.78.0 (2026-02-05)**
+- Released Claude Opus 4.6 model support
+- Added adaptive thinking support
+- Additional API features
+
+**v0.77.0–0.77.1 (2026-01-29 to 2026-02-03)**
+- Structured Outputs support in Messages API (via `output_config`)
+- Custom JSON encoder for extended type support
+- Fixed structured output beta header behavior
+
+**v0.76.0 (2026-01-13)**
+- Raw JSON schema passthrough for `messages.stream()`
+- Binary request streaming support
+- Server-side tools support in tool runner
+- Stream closure fixes
+
+**v0.75.0 (2025-11-24)**
+- Claude Opus 4.5 support
+- Effort parameter
+- Advanced tool use features
+- Autocompaction
+- Computer Use v5
+
+## Code examples
+
+**Streaming with text accumulation:**
+```python
+import asyncio
+from anthropic import AsyncAnthropic
+
+client = AsyncAnthropic()
+
+async def main() -> None:
+    async with client.messages.stream(
+        max_tokens=1024,
+        messages=[{"role": "user", "content": "Say hello there!"}],
+        model="claude-sonnet-4-5-20250929",
+    ) as stream:
+        async for text in stream.text_stream:
+            print(text, end="", flush=True)
+        print()
+    message = await stream.get_final_message()
+    print(message.to_json())
+
+asyncio.run(main())
 ```
 
-**Analyze changes since a release tag with more commit history:**
-```bash
-./shipit ~/projects/my-app --since v1.2.0 --commits 50 --focus "performance improvements"
+**Tool use with `@beta_tool` decorator and auto-runner:**
+```python
+import json
+import rich
+from anthropic import Anthropic, beta_tool
+
+client = Anthropic()
+
+@beta_tool
+def get_weather(location: str) -> str:
+    """Lookup the weather for a given city in either celsius or fahrenheit
+
+    Args:
+        location: The city and state, e.g. San Francisco, CA
+    Returns:
+        A dictionary containing the location, temperature, and weather condition.
+    """
+    return json.dumps({"location": location, "temperature": "68°F", "condition": "Sunny"})
+
+runner = client.beta.messages.tool_runner(
+    max_tokens=1024,
+    model="claude-sonnet-4-5-20250929",
+    tools=[get_weather],
+    messages=[{"role": "user", "content": "What is the weather in SF?"}],
+)
+for message in runner:
+    rich.print(message)
 ```
 
-**Open drafts in Chrome for review before posting:**
-```bash
-./shipit ~/projects/my-app --live --open --accounts x,linkedin
+**Token counting:**
+```python
+from anthropic import Anthropic
+
+client = Anthropic()
+count = client.messages.count_tokens(
+    model="claude-sonnet-4-5-20250929",
+    messages=[{"role": "user", "content": "Hello, world"}],
+)
+print(count.input_tokens)  # 10
+```
+
+**Message Batches:**
+```python
+from anthropic import AsyncAnthropic
+
+client = AsyncAnthropic()
+
+batch = await client.messages.batches.create(
+    requests=[
+        {
+            "custom_id": "my-first-request",
+            "params": {
+                "model": "claude-sonnet-4-5-20250929",
+                "max_tokens": 1024,
+                "messages": [{"role": "user", "content": "Hello, world"}],
+            },
+        },
+        {
+            "custom_id": "my-second-request",
+            "params": {
+                "model": "claude-sonnet-4-5-20250929",
+                "max_tokens": 1024,
+                "messages": [{"role": "user", "content": "Hi again, friend"}],
+            },
+        },
+    ]
+)
+
+# After batch completes:
+result_stream = await client.messages.batches.results(batch.id)
+async for entry in result_stream:
+    if entry.result.type == "succeeded":
+        print(entry.result.message.content)
 ```

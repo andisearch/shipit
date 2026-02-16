@@ -1,112 +1,161 @@
+# The Anthropic Python SDK at 0.79: Structured Outputs, Tool Runners, and Fast Mode
 
+The Anthropic Python SDK is how most Python developers talk to Claude. It wraps the full Messages API with typed parameters, Pydantic response models, and both sync and async clients — so you get autocomplete, type checking, and a clean interface without hand-rolling HTTP requests. Version 0.79.0 shipped on February 7th with fast mode for Claude Opus 4.6, capping a string of releases that added structured outputs, adaptive thinking, and a tool runner that handles multi-turn tool calls automatically.
 
-# AIRun: Make Your Markdown Files Executable AI Prompts
+## What you get
 
-You probably have a folder somewhere full of prompts. Maybe they're in a notes app, maybe scattered across chat histories, maybe copy-pasted into a shared doc that nobody maintains. They work fine until you need to run the same prompt with different inputs, chain two prompts together, or switch from one AI provider to another because you just hit a rate limit.
+The SDK covers the entire Anthropic REST API surface. You create messages, stream responses, define tools for function calling, count tokens before sending requests, and run batch jobs — all through a single `Anthropic()` client (or `AsyncAnthropic()` if you prefer async). There are also dedicated clients for AWS Bedrock and Google Vertex AI if you're running Claude through those platforms.
 
-AIRun fixes this by turning markdown files into executable programs. It's a CLI wrapper around Claude Code that adds Unix shebang support, cross-cloud provider switching, and proper pipe handling — so your prompts become first-class tools in your shell.
+Installation is one line:
 
-## Prompts as Programs
-
-The core idea is simple. Take a markdown file, add a shebang line, make it executable:
-
-```markdown
-#!/usr/bin/env -S ai --haiku
----
-vars:
-  topic: "machine learning"
-  style: casual
-  length: short
----
-Write a {{length}} summary of {{topic}} in a {{style}} tone.
+```sh
+pip install anthropic
 ```
 
-Now you can run it like any other command:
+And basic usage looks like this:
 
-```bash
-./summarize-topic.md --topic "AI safety" --style formal
-./summarize-topic.md --live --length "100 words" --topic "the fall of rome" --style "peter griffin"
+```python
+from anthropic import Anthropic
+
+client = Anthropic()
+message = client.messages.create(
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello, Claude"}],
+    model="claude-sonnet-4-5-20250929",
+)
+print(message.content)
 ```
 
-Variables are declared in YAML front-matter with defaults. Override them from the command line without editing the file. The prompt template stays clean, reusable, and version-controllable in git.
+The client reads your API key from `ANTHROPIC_API_KEY` by default, handles retries with exponential backoff, and gives you a 10-minute timeout — all configurable.
 
-Because these are real executables, they compose with standard Unix tools:
+## Streaming that accumulates
 
-```bash
-cat data.json | ./analyze.md > results.txt
-git log --oneline -20 | ./summarize-changes.md
-./generate-report.md | ./format-output.md > final.txt
+Raw SSE streaming is available via `stream=True`, but the higher-level `messages.stream()` helper is where things get comfortable. It accumulates content blocks as they arrive and emits SDK-specific events for text deltas, tool use blocks, and thinking blocks. You can iterate over the text stream directly:
+
+```python
+import asyncio
+from anthropic import AsyncAnthropic
+
+client = AsyncAnthropic()
+
+async def main() -> None:
+    async with client.messages.stream(
+        max_tokens=1024,
+        messages=[{"role": "user", "content": "Say hello there!"}],
+        model="claude-sonnet-4-5-20250929",
+    ) as stream:
+        async for text in stream.text_stream:
+            print(text, end="", flush=True)
+        print()
+    message = await stream.get_final_message()
+    print(message.to_json())
+
+asyncio.run(main())
 ```
 
-Stdin gets piped in, stdout gets piped out. Stderr carries status messages. Everything works the way Unix programmers expect.
+When the stream finishes, `get_final_message()` hands you the fully assembled message object — same shape as what you'd get from a non-streaming call.
 
-## Why Provider Switching Matters
+## Tool use without the boilerplate
 
-Anyone who's used AI APIs in production knows the rate limit dance. You're in the middle of a session, the model cuts out, and you're stuck waiting or starting over. AIRun solves this with session-scoped provider switching:
+Tool use (function calling) has first-class support. The `@beta_tool` decorator lets you define tools as plain Python functions with docstrings, and the tool runner handles the back-and-forth loop where Claude requests a tool call, you execute it, and send results back:
 
-```bash
-# Hit rate limit on Pro subscription? Switch to AWS and continue the conversation
-ai --aws --resume
+```python
+import json
+import rich
+from anthropic import Anthropic, beta_tool
 
-# Or switch to local Ollama (free, no rate limits)
-ai --ollama --resume
+client = Anthropic()
 
-# Use cloud-hosted Ollama models if your machine lacks GPU
-ai --ollama --model minimax-m2.5:cloud
+@beta_tool
+def get_weather(location: str) -> str:
+    """Lookup the weather for a given city in either celsius or fahrenheit
+
+    Args:
+        location: The city and state, e.g. San Francisco, CA
+    Returns:
+        A dictionary containing the location, temperature, and weather condition.
+    """
+    return json.dumps({"location": location, "temperature": "68°F", "condition": "Sunny"})
+
+runner = client.beta.messages.tool_runner(
+    max_tokens=1024,
+    model="claude-sonnet-4-5-20250929",
+    tools=[get_weather],
+    messages=[{"role": "user", "content": "What is the weather in SF?"}],
+)
+for message in runner:
+    rich.print(message)
 ```
 
-The `--resume` flag picks up your previous conversation regardless of which provider you're now using. Under the hood, AIRun sets provider-specific environment variables (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, etc.) scoped to the session process. Your regular `claude` command is never affected.
+The runner iterates through API calls automatically. When Claude asks for `get_weather`, the runner calls your function, feeds the result back, and continues until Claude produces a final response. No manual loop management.
 
-Seven providers are supported: AWS Bedrock, Google Vertex, Azure, Anthropic API, Vercel AI Gateway, Ollama, and LM Studio. The Vercel gateway alone gives you access to 100+ models from OpenAI, xAI, Google, Meta, Mistral, and DeepSeek with `--vercel --model provider/model`.
+## Structured outputs and token counting
 
-Model tier flags keep things readable across providers:
+Version 0.77 introduced structured outputs through `output_config`, which constrains Claude's responses to match a JSON schema. This is useful when you need machine-readable output rather than free-form text.
 
-```bash
-ai --aws --opus      # or --high
-ai --vertex --sonnet # or --mid
-ai --ollama --haiku  # or --low
+Token counting lets you estimate costs before sending a request:
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic()
+count = client.messages.count_tokens(
+    model="claude-sonnet-4-5-20250929",
+    messages=[{"role": "user", "content": "Hello, world"}],
+)
+print(count.input_tokens)  # 10
 ```
 
-Set a default with `--set-default` so you don't have to type your preferred provider every time. CLI flags always override the default.
+And message batches handle bulk workloads at reduced cost:
 
-## Live Streaming and Automation
+```python
+from anthropic import AsyncAnthropic
 
-The `--live` flag streams output in real-time instead of waiting for the full response. When you're redirecting to a file, AIRun splits the output intelligently — narration and status messages go to stderr (your terminal), clean content goes to the file:
+client = AsyncAnthropic()
 
-```bash
-ai --live --skip task.md                    # Stream to terminal
-./live-report.md > report.md                # Narration to console, clean content to file
-ai --quiet ./live-script.md > output.md     # Suppress status for CI/CD
+batch = await client.messages.batches.create(
+    requests=[
+        {
+            "custom_id": "my-first-request",
+            "params": {
+                "model": "claude-sonnet-4-5-20250929",
+                "max_tokens": 1024,
+                "messages": [{"role": "user", "content": "Hello, world"}],
+            },
+        },
+        {
+            "custom_id": "my-second-request",
+            "params": {
+                "model": "claude-sonnet-4-5-20250929",
+                "max_tokens": 1024,
+                "messages": [{"role": "user", "content": "Hi again, friend"}],
+            },
+        },
+    ]
+)
 ```
 
-The `--quiet` flag suppresses all status messages, which is what you want in CI/CD pipelines where only the output matters. Permission shortcuts (`--skip` for dangerously-skip-permissions, `--bypass` for bypassPermissions) let automation scripts run without interactive prompts.
+## The recent releases
 
-## Under the Hood
+The last few versions have moved quickly. Here's the progression:
 
-AIRun is pure Bash — compatible with macOS's built-in Bash 3.2, no associative arrays, no exotic dependencies beyond Claude Code itself and `jq` for live streaming. The architecture is modular:
+**0.79.0** added fast mode for Claude Opus 4.6, letting you trade some output quality for speed via a parameter. It also fixed speed parameter passthrough in the sync beta `count_tokens` endpoint.
 
-- `scripts/ai` handles flag parsing, provider selection, and mode detection (interactive, file, or piped)
-- `scripts/lib/` contains shared libraries for front-matter parsing, live streaming, and utilities
-- `providers/` has one config file per provider
-- `config/models.sh` maps tier flags to model IDs
+**0.78.0** brought Claude Opus 4.6 model support and adaptive thinking — reasoning traces that show Claude's chain of thought.
 
-Installation is a git clone and a setup script:
+**0.77.0** landed structured outputs in the Messages API, along with a custom JSON encoder for extended type support.
 
-```bash
-git clone https://github.com/andisearch/airun.git
-cd airun && ./setup.sh
+**0.76.0** added raw JSON schema passthrough for `messages.stream()`, binary request streaming, and server-side tools support in the tool runner.
+
+The SDK itself is generated via Stainless from the API spec, which means new API features tend to show up in the SDK within days of going live. Under the hood, it uses httpx for HTTP transport (with an optional aiohttp backend for async), anyio for async primitives, and Pydantic for response models.
+
+## Getting started
+
+```sh
+pip install anthropic
+export ANTHROPIC_API_KEY="my-anthropic-api-key"
 ```
 
-Provider credentials go in `~/.ai-runner/secrets.sh` — only configure what you actually use.
+Optional extras if you need them: `anthropic[aiohttp]` for the aiohttp async backend, `anthropic[bedrock]` for AWS Bedrock, `anthropic[vertex]` for Google Vertex AI.
 
-## What's in the Latest Release
-
-v2.4.1 (February 14, 2026) fixed a subtle `set -e` issue where missing files or bare shebangs in `_parse_shebang_flags` and `load_defaults` would silently kill the script. v2.4.0 introduced the entire script variables system — YAML front-matter, `{{placeholder}}` substitution, CLI overrides — all implemented with parallel indexed arrays to stay Bash 3.2 compatible.
-
-Recent releases also added the live heartbeat indicator (shows `Working... Ns` during silent processing gaps), nested `claude -p` support for child scripts calling other scripts, and updated Ollama cloud models.
-
-## Getting Started
-
-If you already have Claude Code installed, you're five minutes away from running your first executable prompt. Clone the repo, run setup, drop a shebang on a markdown file, and `chmod +x` it. The [GitHub repo](https://github.com/andisearch/airun) has example scripts covering everything from simple summaries to multi-step agent workflows with `--team`.
-
-The thing that sold me on this approach: once a prompt is a file in your PATH, it stops being "a prompt" and starts being a tool. You tab-complete it. You pipe data into it. You put it in a Makefile. You commit it alongside the code it operates on. That's a different relationship with AI than pasting text into a chat window.
+The full SDK source and documentation live on [GitHub](https://github.com/anthropics/anthropic-sdk-python). The typed interface means your editor will show you what's available as you type — which, honestly, is the best documentation for day-to-day use.

@@ -1,94 +1,110 @@
-
-
-I'll review the briefing and channel config, then generate the thread.
 ## 1
 
-Your markdown files are sitting in git doing nothing. What if they could run themselves?
+Most Python API clients make you choose: typed responses or streaming. Sync or async. Simple calls or tool use.
 
-AIRun makes `.md` files executable with a shebang line. Write a prompt, `chmod +x`, run it like any script.
+The Anthropic Python SDK does all of it — and just shipped Claude Opus 4.6 support with adaptive thinking and fast mode.
 
 ## 2
 
-```
-#!/usr/bin/env -S ai --haiku
----
-vars:
-  topic: "machine learning"
-  style: casual
----
-Write a summary of {{topic}} in a {{style}} tone.
+Basic usage is exactly what you'd expect:
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic()
+message = client.messages.create(
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello, Claude"}],
+    model="claude-opus-4-6",
+)
 ```
 
-Then from the terminal:
-
-```
-./summarize.md --topic "AI safety" --style formal
-```
-
-Prompts become reusable CLI tools with default arguments and overrides.
+Typed params in, Pydantic models out.
 
 ## 3
 
-Hit a rate limit on your Claude Pro subscription? Switch providers and keep the conversation:
+Streaming that actually accumulates state for you:
 
-```bash
-ai --aws --resume
-ai --ollama --resume
-ai --vertex --resume
+```python
+async with client.messages.stream(
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Say hello"}],
+    model="claude-sonnet-4-5-20250929",
+) as stream:
+    async for text in stream.text_stream:
+        print(text, end="", flush=True)
 ```
 
-Same session, different backend. Seven providers supported including local models through Ollama and LM Studio.
+SSE under the hood, clean iterator on top.
 
 ## 4
 
-Because it's just bash and stdin/stdout, Unix pipes work:
+Tool use with a Python decorator — define a function, the SDK handles the rest:
 
-```bash
-cat data.json | ./analyze.md > results.txt
-git log --oneline -20 | ./summarize-changes.md
-./generate-report.md | ./format-output.md > final.txt
+```python
+@beta_tool
+def get_weather(location: str) -> str:
+    """Lookup the weather for a city"""
+    return json.dumps({"location": location, "temperature": "68°F"})
+
+runner = client.beta.messages.tool_runner(
+    tools=[get_weather],
+    messages=[{"role": "user", "content": "Weather in SF?"}],
+)
 ```
 
-Chain AI scripts together the same way you'd chain grep, awk, and sed.
+The tool runner loops automatically when Claude requests invocations.
 
 ## 5
 
-The `--live` flag streams output in real-time. When you redirect to a file, narration goes to stderr and clean content goes to the file:
+Token counting before you send:
 
-```bash
-./report.md > report.txt
+```python
+count = client.messages.count_tokens(
+    model="claude-sonnet-4-5-20250929",
+    messages=[{"role": "user", "content": "Hello, world"}],
+)
+print(count.input_tokens)  # 10
 ```
 
-You see progress in the terminal. The file gets clean output. No post-processing.
+Know your costs before they happen.
 
 ## 6
 
-It wraps Claude Code, so you keep everything: MCP servers, CLAUDE.md project instructions, tool use, agent mode. AIRun just adds provider switching, script execution, and piping on top.
+Need to run thousands of requests? Message Batches let you fire off bulk jobs and stream results back:
+
+```python
+batch = await client.messages.batches.create(
+    requests=[
+        {"custom_id": "req-1", "params": {...}},
+        {"custom_id": "req-2", "params": {...}},
+    ]
+)
+```
+
+No polling loops to write yourself.
 
 ## 7
 
-100+ models available through Vercel AI Gateway, including OpenAI, Google, Meta, Mistral, and DeepSeek:
+What's new in v0.79.0:
 
-```bash
-ai --vercel --model openai/gpt-4o
-ai --vercel --model google/gemini-2.0-flash
-```
+- Claude Opus 4.6 with adaptive thinking
+- Fast mode parameter for speed-optimized responses
+- Structured outputs via output_config for JSON schema constraints
+- Bedrock and Vertex AI clients with native auth
 
-Or run local models free with Ollama and LM Studio. No API costs, nothing leaves your machine.
+All typed. All with retry and timeout handling built in.
 
 ## 8
 
-Open source, installs in one command:
+`pip install anthropic` — that's it.
 
-```bash
-git clone https://github.com/andisearch/airun.git
-cd airun && ./setup.sh
-```
+Supports Python 3.9+, sync and async, with optional extras for aiohttp, Bedrock, and Vertex AI.
 
-Works on macOS and Linux. Only dependency is Claude Code and Bash 3.2+.
+Two lines to your first API call.
 
 ## Reply (Link)
 
-GitHub: https://github.com/andisearch/airun
+GitHub: https://github.com/anthropics/anthropic-sdk-python
 
-Built by the team at @andisearch
+Docs and API reference: https://docs.anthropic.com

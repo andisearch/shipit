@@ -1,93 +1,108 @@
+## What's in the box
 
+The `anthropic` package gives you typed sync and async clients for the full Messages API — streaming, tool use, batches, token counting, structured outputs. It runs on httpx with Pydantic models for responses and TypedDict params. Bedrock and Vertex AI each get their own client classes with native auth handling.
 
-**Title:** AIRun — Make markdown files executable as AI prompts, switch cloud providers mid-conversation
-
-**TL;DR:** I built a CLI wrapper around Claude Code that lets you run `.md` files as programs (via Unix shebang), switch between AWS Bedrock, Google Vertex, Azure, Anthropic API, Vercel AI Gateway, Ollama, and LM Studio mid-session, and pipe data through AI scripts like any other Unix tool.
-
-## What it does
-
-AIRun makes markdown files into executable programs. You add a shebang line, write your prompt, and run it directly from the terminal:
-
-```markdown
-#!/usr/bin/env -S ai --haiku
----
-vars:
-  topic: "machine learning"
-  style: casual
-  length: short
----
-Write a {{length}} summary of {{topic}} in a {{style}} tone.
+```sh
+pip install anthropic
 ```
 
-```bash
-chmod +x summarize.md
-./summarize.md --topic "AI safety" --style formal
+## What changed recently
+
+**v0.79.0** added the speed parameter for Opus 4.6's fast mode and fixed its passthrough in sync beta `count_tokens`.
+
+**v0.78.0** brought Claude Opus 4.6 model support and adaptive thinking (reasoning traces).
+
+**v0.77.x** introduced structured outputs — you can now pass `output_config` to constrain responses to a JSON schema, which is useful if you're tired of wrestling with freeform model output.
+
+**v0.76.0** added raw JSON schema passthrough for `messages.stream()`, server-side tools in the tool runner, and binary request streaming.
+
+## Code examples
+
+Basic usage:
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic()
+message = client.messages.create(
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello, Claude"}],
+    model="claude-sonnet-4-5-20250929",
+)
+print(message.content)
 ```
 
-Variables are declared in YAML front-matter with defaults, then overridden from the CLI without editing the file. The prompt template uses `{{placeholder}}` substitution — nothing fancy, just enough to make scripts reusable.
+The tool runner is the feature I find most interesting. You decorate a function, hand it to the runner, and the SDK handles the call loop — Claude asks to use the tool, the SDK executes your function, sends the result back, and repeats until Claude has a final answer:
 
-## Provider switching
+```python
+import json
+import rich
+from anthropic import Anthropic, beta_tool
 
-The main reason I built this: rate limits. When you hit a wall on one provider, you switch to another and keep going.
+client = Anthropic()
 
-```bash
-# Hit rate limit on Pro subscription, switch to AWS
-ai --aws --resume
+@beta_tool
+def get_weather(location: str) -> str:
+    """Lookup the weather for a given city.
 
-# Or drop to a free local model
-ai --ollama --resume
+    Args:
+        location: The city and state, e.g. San Francisco, CA
+    Returns:
+        A dictionary with location, temperature, and condition.
+    """
+    return json.dumps({"location": location, "temperature": "68°F", "condition": "Sunny"})
 
-# Use 100+ models through Vercel AI Gateway
-ai --vercel --model openai/gpt-4o
+runner = client.beta.messages.tool_runner(
+    max_tokens=1024,
+    model="claude-sonnet-4-5-20250929",
+    tools=[get_weather],
+    messages=[{"role": "user", "content": "What is the weather in SF?"}],
+)
+for message in runner:
+    rich.print(message)
 ```
 
-Provider env vars are scoped to the session process. Your normal `claude` config is never touched — original settings are saved and restored on exit via trap.
+Async streaming with text accumulation:
 
-Supported providers: AWS Bedrock, Google Vertex, Azure, Anthropic API, Vercel AI Gateway, Ollama (local GGUF or cloud-hosted), LM Studio (MLX on Apple Silicon).
+```python
+import asyncio
+from anthropic import AsyncAnthropic
 
-## Unix pipes work the way you'd expect
+client = AsyncAnthropic()
 
-```bash
-cat data.json | ./analyze.md > results.txt
-git log --oneline -20 | ./summarize-changes.md
-./generate-report.md | ./format-output.md > final.txt
+async def main() -> None:
+    async with client.messages.stream(
+        max_tokens=1024,
+        messages=[{"role": "user", "content": "Say hello there!"}],
+        model="claude-sonnet-4-5-20250929",
+    ) as stream:
+        async for text in stream.text_stream:
+            print(text, end="", flush=True)
+        print()
+
+asyncio.run(main())
 ```
 
-Stdout and stderr are separated properly, so you can redirect output to a file while still seeing status messages in your terminal. The `--live` flag streams text in real-time and splits narration to stderr when you're redirecting:
+Token counting before you send:
 
-```bash
-./live-report.md > report.md    # Progress in terminal, clean content in file
-ai --quiet ./script.md > out.md # Suppress status messages for CI/CD
+```python
+count = client.messages.count_tokens(
+    model="claude-sonnet-4-5-20250929",
+    messages=[{"role": "user", "content": "Hello, world"}],
+)
+print(count.input_tokens)  # 10
 ```
 
-## How it works
+## Other details worth knowing
 
-It's all Bash — no compiled dependencies beyond Claude Code itself (and `jq` for live streaming). The architecture is:
+- Default 2 retries with exponential backoff, 10-minute timeout
+- `.with_raw_response` if you need headers
+- Auto-pagination on list endpoints
+- Optional `aiohttp` backend if you prefer it over httpx for async
+- Python 3.9+
 
-- `scripts/ai` — Entry point. Parses flags, detects mode (interactive / file / piped), selects provider.
-- `scripts/lib/` — Shared libraries for front-matter parsing, streaming, utilities.
-- `providers/` — Modular configs for each cloud provider. Adding a new one is just a new `.sh` file.
-- `config/models.sh` — Default model IDs per provider and tier (`--opus`/`--sonnet`/`--haiku`).
+Full docs and source: the SDK is generated via Stainless and lives on PyPI as `anthropic`.
 
-Three execution modes: interactive (launches Claude Code with provider env vars), file (reads markdown, strips shebang, substitutes variables, passes to `claude -p`), and piped (reads stdin, prepends or appends to prompt).
+## Question
 
-Bash 3.2 compatible — works on stock macOS without homebrew Bash.
-
-## Install
-
-```bash
-git clone https://github.com/andisearch/airun.git
-cd airun && ./setup.sh
-```
-
-Configure providers in `~/.ai-runner/secrets.sh` (only set what you use):
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-export AWS_PROFILE="your-profile-name"
-export AWS_REGION="us-west-2"
-```
-
-## What I'm unsure about
-
-I went back and forth on whether variable substitution should use `{{mustache}}` syntax or `$shell_style` syntax. Mustache felt safer since there's no risk of accidental shell expansion, but it's one more syntax to remember. For those of you who've built similar prompt tooling — what syntax felt most natural to your users?
+For those of you using tool use in production — are you finding the auto-running tool runner pattern useful, or do you prefer to manage the tool call loop yourself for more control over retry logic and error handling? Curious how people are approaching this.
