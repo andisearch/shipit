@@ -36,22 +36,38 @@ REPO_PATH=""
 SINCE=""
 CHANNELS=""
 LIVE=false
-CHROME=false
+OPEN=false
+DANGEROUSLY_POST=false
 ACCOUNTS=""
+FOCUS=""
+COMMITS=20
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --since)    SINCE="$2"; shift 2 ;;
         --channels) CHANNELS="$2"; shift 2 ;;
         --live)     LIVE=true; shift ;;
-        --chrome)   CHROME=true; shift ;;
+        --open)     OPEN=true; shift ;;
+        --dangerously-post) DANGEROUSLY_POST=true; OPEN=true; shift ;;
         --accounts) ACCOUNTS="$2"; shift 2 ;;
+        --focus)    FOCUS="$2"; shift 2 ;;
+        --commits)  COMMITS="$2"; shift 2 ;;
         -*)         echo "Unknown flag: $1" >&2; exit 1 ;;
         *)          REPO_PATH="$1"; shift ;;
     esac
 done
 
 REPO_PATH="${REPO_PATH:-.}"
+
+# If REPO_PATH looks like a URL, shallow-clone to temp dir
+CLONE_DIR=""
+if [[ "$REPO_PATH" =~ ^https?:// ]]; then
+    CLONE_DIR=$(mktemp -d)
+    echo "==> Cloning $REPO_PATH..." >&2
+    git clone --depth 1 "$REPO_PATH" "$CLONE_DIR/repo" >&2
+    REPO_PATH="$CLONE_DIR/repo"
+fi
+
 REPO_PATH="$(cd "$REPO_PATH" && pwd)"
 CHANNELS="${CHANNELS:-$DEFAULT_CHANNELS}"
 
@@ -59,7 +75,7 @@ OUTPUT_DIR="$(mkdir -p "$OUTPUT_DIR" && cd "$OUTPUT_DIR" && pwd)"
 
 # Run AI scripts from a clean temp dir so Claude Code doesn't pick up shipit's CLAUDE.md
 RUN_DIR=$(mktemp -d)
-trap 'rm -rf "$RUN_DIR"' EXIT
+trap 'rm -rf "$RUN_DIR" $CLONE_DIR' EXIT
 
 # Wrapper to run an AI script from the clean temp dir
 run_script() {
@@ -79,15 +95,16 @@ gather_repo_context() {
         [[ -f "$REPO_PATH/$f" ]] && { echo "--- File: $f ---"; cat "$REPO_PATH/$f"; echo ""; }
     done
     if [[ -d "$REPO_PATH/.git" ]]; then
-        echo "--- Recent commits ---"
-        git -C "$REPO_PATH" log --oneline -20
-        echo ""
         if [[ -n "$SINCE" ]]; then
-            echo "--- Changes since $SINCE ---"
+            echo "--- Commits since $SINCE ---"
             git -C "$REPO_PATH" log --oneline "$SINCE"..HEAD
             echo ""
             echo "--- Diff since $SINCE ---"
             git -C "$REPO_PATH" diff "$SINCE"..HEAD --stat
+            echo ""
+        else
+            echo "--- Recent commits (last $COMMITS) ---"
+            git -C "$REPO_PATH" log --oneline -"$COMMITS"
             echo ""
         fi
     fi
@@ -98,6 +115,9 @@ gather_repo_context() {
 echo "==> Analyzing repo: $REPO_PATH" >&2
 BRIEFING=$({
     assemble_inline "repo" "$(gather_repo_context)"
+    if [[ -n "$FOCUS" ]]; then
+        assemble_inline "focus" "$FOCUS"
+    fi
 } | run_script "$SCRIPTS/analyze.md")
 echo "$BRIEFING" > "$OUTPUT_DIR/briefing.md"
 echo "==> Briefing saved to $OUTPUT_DIR/briefing.md" >&2
@@ -164,8 +184,14 @@ done
 
 # --- Stage 3: Chrome posting (optional) ---
 
-if [[ "$CHROME" == true && -n "$ACCOUNTS" ]]; then
-    echo "==> Posting via Chrome..." >&2
+if [[ "$OPEN" == true && -n "$ACCOUNTS" ]]; then
+    POST_MODE="draft"
+    if [[ "$DANGEROUSLY_POST" == true ]]; then
+        POST_MODE="post"
+        echo "==> Posting via Chrome (LIVE MODE)..." >&2
+    else
+        echo "==> Opening drafts in Chrome..." >&2
+    fi
     {
         for channel in "${CHAN_LIST[@]}"; do
             channel=$(echo "$channel" | tr -d ' ')
@@ -173,6 +199,7 @@ if [[ "$CHROME" == true && -n "$ACCOUNTS" ]]; then
             [[ -f "$outfile" ]] && assemble_payload "$channel" "$outfile"
         done
         assemble_inline "accounts" "$ACCOUNTS"
+        assemble_inline "mode" "$POST_MODE"
     } | run_script "$SCRIPTS/post.md"
 fi
 

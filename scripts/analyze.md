@@ -9,9 +9,16 @@ Your input arrives as delimited sections:
 ```
 === SECTION: repo ===
 (Repository contents: README, package manifests, recent commits, changelog, code structure)
+
+=== SECTION: focus ===
+(Optional — specific angle or topic to emphasize in the briefing)
 ```
 
+Sections may be absent — generate with what you have.
+
 ## Instructions
+
+If a `focus` section is provided, use it to guide what you emphasize. Give extra weight to features, changes, and examples related to the focus topic. Still cover the full project, but lead with and prioritize the focused area.
 
 Read the repository contents and produce a structured briefing covering:
 

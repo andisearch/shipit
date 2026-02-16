@@ -8,7 +8,7 @@ One command turns your repo into a full product launch.
 
 ShipIt is a hackathon project for the "Built with Opus 4.6" Claude Code Hackathon (Cerebral Valley + Anthropic).
 
-`shipit ./my-repo` generates: release notes, blog post, X thread, LinkedIn post, Reddit post — all tailored per-platform. With `--chrome`, it opens your browser and posts the content to your logged-in social accounts live.
+`shipit ./my-repo` generates: release notes, blog post, X thread, LinkedIn post, Reddit post — all tailored per-platform. With `--open`, it loads drafts into your browser's compose UIs for review. With `--dangerously-post`, it posts live.
 
 Built as composable AIRun executable markdown scripts piped through Opus 4.6.
 
@@ -21,7 +21,7 @@ Built as composable AIRun executable markdown scripts piped through Opus 4.6.
 ## Architecture
 
 ```
-shipit [repo-path] [--since tag/date] [--channels x,linkedin,reddit,blog,notes] [--live] [--chrome --accounts x,linkedin]
+shipit [repo-path] [--since tag/date] [--channels x,linkedin,reddit,blog,notes] [--live] [--open --accounts x,linkedin] [--dangerously-post]
   → analyze.md    (reads repo: README, CHANGELOG, git log, code → structured briefing)
   → fan out to channel scripts (each is a standalone executable .md):
       → release-notes.md
@@ -31,7 +31,7 @@ shipit [repo-path] [--since tag/date] [--channels x,linkedin,reddit,blog,notes] 
       → reddit-post.md
   → review.md     (quality check on each output)
   → save to output/
-  → [optional] post.md  (browser automation to post content live via --chrome)
+  → [optional] post.md  (browser automation: --open for drafts, --dangerously-post to post live)
 ```
 
 Each script is a standalone executable markdown file with shebang. The orchestrator (`shipit`) is a bash script that pipes data between them.
@@ -51,7 +51,7 @@ shipit/
     linkedin-post.md       # Channel: LinkedIn post
     reddit-post.md         # Channel: Reddit post
     review.md              # Quality review stage
-    post.md                # Browser automation posting via --chrome
+    post.md                # Browser automation: --open for drafts, --dangerously-post to post
   examples/
     output/                # Example generated outputs (committed)
   LICENSE                  # MIT
@@ -73,8 +73,8 @@ shipit/
 
 ### Phase 2.5: Chrome Posting (30 min)
 9. Write `scripts/post.md` — browser automation (adapt from ~/projects/yc-application-advisor/test/scripts/check-upload-flow.md)
-10. Add `--chrome` and `--accounts` flags to orchestrator
-11. Test: `./shipit ~/projects/airun --chrome --accounts x`
+10. Add `--open`, `--dangerously-post`, and `--accounts` flags to orchestrator
+11. Test: `./shipit ~/projects/airun --open --accounts x`
 
 ### Phase 3: Ship
 12. Full README with architecture and quick start
@@ -132,7 +132,8 @@ while [[ $# -gt 0 ]]; do
         --since)    SINCE="$2"; shift 2 ;;
         --channels) CHANNELS="$2"; shift 2 ;;
         --live)     LIVE=true; shift ;;
-        --chrome)   CHROME=true; shift ;;
+        --open)     OPEN=true; shift ;;
+        --dangerously-post) DANGEROUSLY_POST=true; OPEN=true; shift ;;
         --accounts) ACCOUNTS="$2"; shift 2 ;;
         -*)         echo "Unknown flag: $1" >&2; exit 1 ;;
         *)          REPO_PATH="$1"; shift ;;
@@ -505,7 +506,7 @@ SKIPPED Reddit: not logged in
 === INPUT ===
 ```
 
-**Prerequisites for --chrome:**
+**Prerequisites for --open / --dangerously-post:**
 1. Chrome open and in the foreground (not minimized)
 2. Claude in Chrome extension installed, active, showing "Connected"
 3. `ai` CLI installed (AIRun)
@@ -543,7 +544,7 @@ The inlined patterns above should be sufficient for all scripts. Only read these
 - **No config-loader.sh or channel_field()** — simple bash arrays or case statements
 
 ### What Makes This Win the Hackathon
-1. **Demo is king (30%)** — `--live` streaming + `--chrome` live posting = genuinely cool to watch
+1. **Demo is king (30%)** — `--live` streaming + `--open` draft loading + `--dangerously-post` live posting = genuinely cool to watch
 2. **Opus 4.6 plays multiple roles** — analyst, writer (5 voices), editor in separate pipeline stages
 3. **Executable markdown is surprising** — scripts ARE prompts, prompts ARE programs
 4. **Composable Unix pipes** — each script runs independently, pipes connect them

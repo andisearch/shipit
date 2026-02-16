@@ -1,143 +1,109 @@
 
 
-# Andi AIRun — Product Briefing
+# ShipIt — Product Briefing
 
 ## What the Project Does
 
-AIRun is a CLI wrapper around Claude Code that makes markdown files executable as AI prompts (via Unix shebang) and adds cross-cloud provider switching. It lets users run the same Claude Code sessions across AWS Bedrock, Google Vertex, Azure, Anthropic API, Vercel AI Gateway, Ollama, and LM Studio — switching mid-conversation to dodge rate limits. It supports Unix pipes, stdin/stdout redirection, script variables, live streaming, and agent teams.
+ShipIt is a bash-based CLI tool that reads a code repository's context (README, CHANGELOG, git log, package manifests) and generates platform-specific launch content across five channels: release notes, blog post, X/Twitter thread, LinkedIn post, and Reddit post. It orchestrates a pipeline of executable markdown scripts, each powered by Claude Opus 4.6 via AIRun, and optionally opens drafts in Chrome for review or direct posting.
 
 ## Key Features
 
-- **Executable markdown** — Run `.md` files as programs with `#!/usr/bin/env ai` shebang; prompts become reusable, versionable tools
-- **Cross-cloud provider switching** — Switch between AWS Bedrock, Google Vertex, Azure, Anthropic API, Vercel AI Gateway, and Claude Pro subscription using CLI flags
-- **Local model support** — Run free local models via Ollama (GGUF) or LM Studio (MLX on Apple Silicon); includes cloud-hosted Ollama models for low-VRAM machines
-- **100+ alternate models** — Access OpenAI, xAI, Google, Meta, Mistral, DeepSeek models through Vercel AI Gateway with `--vercel --model provider/model`
-- **Unix pipe support** — Pipe data into scripts, redirect output to files, chain scripts in pipelines with proper stdout/stderr separation
-- **Script variables** — YAML front-matter with `vars:` block and `{{placeholder}}` substitution; CLI overrides without editing the script
-- **Live streaming** — `--live` flag streams text output in real-time; smart output splitting sends narration to stderr and clean content to file when redirecting
-- **Session continuity** — `--resume` picks up previous conversations across any provider/model combination
-- **Agent teams** — `--team` enables Claude Code's multi-agent collaboration (experimental, interactive only)
-- **Model tier selection** — `--opus`/`--high`, `--sonnet`/`--mid`, `--haiku`/`--low` for model tier control
-- **Persistent defaults** — `--set-default` saves preferred provider+model; CLI flags always override
-- **Permission shortcuts** — `--skip` (dangerously-skip-permissions) and `--bypass` (bypassPermissions) for automation scripts
-- **Session-scoped isolation** — Provider environment variables are set per-session; plain `claude` is never affected
+- **One-command launch content** — Run `./shipit ~/projects/my-app` to generate content for all five channels from a single repo
+- **GitHub URL support** — Accepts GitHub URLs directly; shallow-clones to a temp directory and cleans up after
+- **Channel selection** — Generate for specific platforms with `--channels x,linkedin`
+- **Focus mode** — Direct the analyst to emphasize a specific feature or angle with `--focus "topic"`
+- **Git-aware diffing** — Analyze changes since a tag or date with `--since v1.2.0`
+- **AI writing quality review** — A dedicated review stage checks generated content for AI writing tells (vocabulary flags, structural patterns) and corrects them
+- **Chrome integration** — `--open` fills compose UIs in separate Chrome tabs for review; `--dangerously-post` posts directly
+- **Executable markdown architecture** — Each pipeline stage is a `.md` file with a shebang, composable with Unix pipes
+- **Streaming output** — `--live` flag streams generation in real-time
 
 ## How It Works
 
-**Architecture:** A collection of Bash scripts organized as:
-- `scripts/ai` — Main entry point, handles flag parsing, provider selection, mode detection (interactive / file / piped)
-- `scripts/lib/` — Shared libraries: `core-utils.sh`, `system-utils.sh`, `live-stream.sh`, front-matter parsing
-- `providers/` — Modular provider configs (`aws.sh`, `vertex.sh`, `ollama.sh`, `lmstudio.sh`, `vercel.sh`, `azure.sh`, `apikey.sh`)
-- `config/models.sh` — Default model IDs per provider and tier
-- `tools/` — Tool abstraction layer
+ShipIt is a bash orchestrator (`shipit`) that pipes data between standalone AI scripts. The pipeline has four stages:
 
-**Execution model:** AIRun detects three modes:
-1. **Interactive** — `ai --aws --opus` launches Claude Code with provider env vars set
-2. **File** — `ai task.md` or `./task.md` reads the markdown, strips the shebang, extracts front-matter variables, substitutes placeholders, and passes the prompt to `claude -p`
-3. **Piped** — `cat data.json | ai` or `curl ... | ai` reads stdin content, prepends/appends to prompt
+1. **Analyze** (`analyze.md`) — Reads repo context (README, manifests, git log) and produces a structured briefing
+2. **Generate** (5 channel scripts) — Each receives the briefing via stdin and generates platform-specific content: `release-notes.md`, `blog-post.md`, `x-thread.md`, `linkedin-post.md`, `reddit-post.md`
+3. **Review** (`review.md`) — Checks each output for AI writing tells and corrects them
+4. **Post** (`post.md`) — Opens drafts in Chrome compose UIs or posts live
 
-Provider switching works by setting environment variables (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, etc.) scoped to the session process. Original config is saved and restored on exit via trap.
+Scripts communicate through `=== SECTION: ===` delimited stdin payloads. Each script is an executable markdown file that runs through AIRun with Claude Opus 4.6. Output lands in `./output/` as individual markdown files.
 
-**Dependencies:** Claude Code (required), Bash 3.2+ (macOS compatible, no associative arrays), `jq` (for `--live` streaming). Optional: Ollama, LM Studio, cloud provider credentials.
-
-**Config locations:**
-- `~/.ai-runner/secrets.sh` — API keys and credentials
-- `~/.ai-runner/defaults.sh` — Saved default provider/model
-- `/usr/local/share/ai-runner/` — Installed scripts and libraries
-- `/usr/local/bin/` — Symlinked commands (`ai`, `airun`, `ai-status`, `ai-sessions`)
+**Dependencies:**
+- Claude Code (`claude` CLI)
+- AIRun (`ai` CLI) — executable markdown runtime
+- Chrome + Claude in Chrome extension (for `--open` / `--dangerously-post`)
 
 ## Installation & Usage
 
-**Install:**
 ```bash
-git clone https://github.com/andisearch/airun.git
-cd airun && ./setup.sh
+# Prerequisites
+curl -fsSL https://claude.ai/install.sh | bash   # Claude Code
+git clone https://github.com/andisearch/airun.git && cd airun && ./setup.sh  # AIRun
+
+# Clone ShipIt
+git clone https://github.com/andisearch/shipit.git
+cd shipit
+
+# Basic usage — generate all channels
+./shipit ~/projects/my-app --live
+
+# GitHub URL
+./shipit https://github.com/andisearch/airun
+
+# Specific channels only
+./shipit ~/projects/my-app --channels x,linkedin
+
+# Focus on a topic
+./shipit ~/projects/my-app --focus "the new plugin system"
+
+# Changes since a tag
+./shipit ~/projects/my-app --since v1.2.0 --focus "performance improvements"
+
+# Open in Chrome for review
+./shipit ~/projects/my-app --live --open --accounts x,linkedin
+
+# Post directly
+./shipit ~/projects/my-app --live --dangerously-post --accounts x,linkedin
 ```
 
-**Configure providers** in `~/.ai-runner/secrets.sh` (only what you need):
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-export AWS_PROFILE="your-profile-name"
-export AWS_REGION="us-west-2"
-export VERCEL_AI_GATEWAY_TOKEN="vck_..."
+**Output structure:**
 ```
-
-**Update:**
-```bash
-ai update
+output/
+  briefing.md     # Structured repo analysis
+  notes.md        # Release notes
+  blog.md         # Blog post
+  x.md            # X/Twitter thread
+  linkedin.md     # LinkedIn post
+  reddit.md       # Reddit post
 ```
-
-**Key flags:**
-
-| Flag | Purpose |
-|------|---------|
-| `--aws`, `--vertex`, `--apikey`, `--azure`, `--vercel`, `--pro` | Provider selection |
-| `--ollama` / `--ol`, `--lmstudio` / `--lm` | Local providers |
-| `--opus` / `--high`, `--sonnet` / `--mid`, `--haiku` / `--low` | Model tier |
-| `--model <id>` | Specific model ID |
-| `--resume` | Continue previous conversation |
-| `--live` | Stream output in real-time |
-| `--quiet` / `-q` | Suppress status messages (CI/CD) |
-| `--skip` | Shortcut for `--dangerously-skip-permissions` |
-| `--bypass` | Shortcut for `--permission-mode bypassPermissions` |
-| `--team` | Enable agent teams |
-| `--set-default` | Save current flags as default |
-| `--clear-default` | Remove saved default |
-| `--stdin-position prepend\|append` | Control where piped input appears |
 
 ## What's New
 
-**v2.4.1 (2026-02-14):** Fixed `set -e` safety — `_parse_shebang_flags` and `load_defaults` no longer silently kill the script when missing files or bare shebangs trigger non-zero exit codes.
+Based on recent commits:
 
-**v2.4.0 (2026-02-14):** Script variables via YAML front-matter. Declare `vars:` with defaults, use `{{placeholder}}` in prompts, override from CLI with `--varname "value"`. Bash 3.2 compatible (parallel indexed arrays).
-
-**v2.3.6 (2026-02-14):** Live heartbeat shows `[AI Runner] Working... Ns` during silent gaps. `--quiet` flag for CI/CD. Composable scripts documentation. Nested `claude -p` fix for child scripts. Updated Ollama cloud models (glm-5, minimax-m2.5).
-
-**v2.3.3–2.3.5 (2026-02-12–13):** `--live` flag for real-time streaming with smart output splitting (narration to stderr, content to file). Fixed shebang flag parsing and flag precedence (CLI > shebang > defaults). YAML frontmatter support in live output splitting.
-
-**Recent commits:** Variable override documentation, example script flag cleanup, set -e safety fixes, Ollama cloud model updates, process isolation for nested scripts, quiet mode.
+- **Initial pipeline release** — Full orchestrator with 7 AI scripts (analyze, 5 channels, review, post) and example outputs
+- **Project documentation** — CLAUDE.md with architecture overview and development conventions
+- **Expanded README** — Detailed setup instructions, usage examples, architecture explanation, and CLI reference
 
 ## Code Examples
 
-**1. Executable markdown with variables:**
-```markdown
-#!/usr/bin/env -S ai --haiku
----
-vars:
-  topic: "machine learning"
-  style: casual
-  length: short
----
-Write a {{length}} summary of {{topic}} in a {{style}} tone.
-```
+**Generate all launch content for a local repo:**
 ```bash
-./summarize-topic.md --topic "AI safety" --style formal
-./summarize-topic.md --live --length "100 words" --topic "the fall of rome" --style "peter griffin"
+./shipit ~/projects/my-app --live
 ```
 
-**2. Provider switching to bypass rate limits:**
+**Generate only X and LinkedIn posts, focused on a specific feature:**
 ```bash
-# Hit rate limit on Pro subscription, switch to AWS and resume
-ai --aws --resume
-
-# Or switch to local Ollama (free)
-ai --ollama --resume
-
-# Use Ollama cloud models (no GPU required)
-ai --ollama --model minimax-m2.5:cloud
+./shipit ~/projects/my-app --channels x,linkedin --focus "the new plugin system"
 ```
 
-**3. Unix pipe automation:**
+**Analyze changes since a release tag with more commit history:**
 ```bash
-cat data.json | ./analyze.md > results.txt
-git log --oneline -20 | ./summarize-changes.md
-./generate-report.md | ./format-output.md > final.txt
+./shipit ~/projects/my-app --since v1.2.0 --commits 50 --focus "performance improvements"
 ```
 
-**4. Live streaming with file redirect:**
+**Open drafts in Chrome for review before posting:**
 ```bash
-ai --live --skip task.md                    # Stream to terminal
-./live-report.md > report.md                # Narration to console, clean content to file
-ai --quiet ./live-script.md > output.md     # Suppress status for CI/CD
-ai --chrome --live --skip test-flow.md      # Browser automation with progress
+./shipit ~/projects/my-app --live --open --accounts x,linkedin
 ```
