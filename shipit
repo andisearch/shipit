@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPTS="$SCRIPT_DIR/scripts"
+OUTPUT_DIR="./output"
+DEFAULT_CHANNELS="notes,blog,x,linkedin,reddit"
+
+# --- Helpers ---
+
+assemble_payload() {
+    # Usage: assemble_payload SECTION_NAME FILE_PATH [SECTION_NAME FILE_PATH ...]
+    while [[ $# -ge 2 ]]; do
+        local section="$1" file="$2"; shift 2
+        if [[ -f "$file" ]]; then
+            echo "=== SECTION: $section ==="
+            echo ""
+            cat "$file"
+            echo ""
+        fi
+    done
+}
+
+assemble_inline() {
+    # Usage: assemble_inline SECTION_NAME "content string"
+    local section="$1" content="$2"
+    echo "=== SECTION: $section ==="
+    echo ""
+    echo "$content"
+    echo ""
+}
+
+# --- CLI Arg Parsing ---
+
+REPO_PATH=""
+SINCE=""
+CHANNELS=""
+LIVE=false
+CHROME=false
+ACCOUNTS=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --since)    SINCE="$2"; shift 2 ;;
+        --channels) CHANNELS="$2"; shift 2 ;;
+        --live)     LIVE=true; shift ;;
+        --chrome)   CHROME=true; shift ;;
+        --accounts) ACCOUNTS="$2"; shift 2 ;;
+        -*)         echo "Unknown flag: $1" >&2; exit 1 ;;
+        *)          REPO_PATH="$1"; shift ;;
+    esac
+done
+
+REPO_PATH="${REPO_PATH:-.}"
+REPO_PATH="$(cd "$REPO_PATH" && pwd)"
+CHANNELS="${CHANNELS:-$DEFAULT_CHANNELS}"
+
+OUTPUT_DIR="$(mkdir -p "$OUTPUT_DIR" && cd "$OUTPUT_DIR" && pwd)"
+
+# Run AI scripts from a clean temp dir so Claude Code doesn't pick up shipit's CLAUDE.md
+RUN_DIR=$(mktemp -d)
+trap 'rm -rf "$RUN_DIR"' EXIT
+
+# Wrapper to run an AI script from the clean temp dir
+run_script() {
+    local script="$1"
+    (cd "$RUN_DIR" && "$script")
+}
+
+# --- Gather Repo Context ---
+
+gather_repo_context() {
+    echo "Repository: $REPO_PATH"
+    echo ""
+    for f in README.md README.rst README CHANGELOG.md CHANGES.md; do
+        [[ -f "$REPO_PATH/$f" ]] && { echo "--- File: $f ---"; cat "$REPO_PATH/$f"; echo ""; }
+    done
+    for f in package.json Cargo.toml pyproject.toml setup.py go.mod; do
+        [[ -f "$REPO_PATH/$f" ]] && { echo "--- File: $f ---"; cat "$REPO_PATH/$f"; echo ""; }
+    done
+    if [[ -d "$REPO_PATH/.git" ]]; then
+        echo "--- Recent commits ---"
+        git -C "$REPO_PATH" log --oneline -20
+        echo ""
+        if [[ -n "$SINCE" ]]; then
+            echo "--- Changes since $SINCE ---"
+            git -C "$REPO_PATH" log --oneline "$SINCE"..HEAD
+            echo ""
+            echo "--- Diff since $SINCE ---"
+            git -C "$REPO_PATH" diff "$SINCE"..HEAD --stat
+            echo ""
+        fi
+    fi
+}
+
+# --- Stage 1: Analyze ---
+
+echo "==> Analyzing repo: $REPO_PATH" >&2
+BRIEFING=$({
+    assemble_inline "repo" "$(gather_repo_context)"
+} | run_script "$SCRIPTS/analyze.md")
+echo "$BRIEFING" > "$OUTPUT_DIR/briefing.md"
+echo "==> Briefing saved to $OUTPUT_DIR/briefing.md" >&2
+
+# Detect project metadata from repo
+PROJECT_NAME=$(basename "$REPO_PATH")
+if [[ -f "$REPO_PATH/package.json" ]]; then
+    PROJECT_NAME=$(grep -o '"name": *"[^"]*"' "$REPO_PATH/package.json" | head -1 | sed 's/"name": *"//;s/"//' || echo "$PROJECT_NAME")
+fi
+
+# --- Stage 2: Generate per channel ---
+
+IFS=',' read -ra CHAN_LIST <<< "$CHANNELS"
+for channel in "${CHAN_LIST[@]}"; do
+    channel=$(echo "$channel" | tr -d ' ')
+    # Map channel names to script files
+    case "$channel" in
+        x)        script="$SCRIPTS/x-thread.md" ;;
+        linkedin) script="$SCRIPTS/linkedin-post.md" ;;
+        reddit)   script="$SCRIPTS/reddit-post.md" ;;
+        blog)     script="$SCRIPTS/blog-post.md" ;;
+        notes)    script="$SCRIPTS/release-notes.md" ;;
+        *)        echo "Unknown channel: $channel, skipping" >&2; continue ;;
+    esac
+
+    if [[ ! -f "$script" ]]; then
+        echo "Script not found: $script, skipping" >&2
+        continue
+    fi
+
+    echo "==> Generating $channel..." >&2
+
+    CONTENT=$({
+        assemble_payload "briefing" "$OUTPUT_DIR/briefing.md"
+        assemble_inline "channel-config" "platform: $channel
+project_name: $PROJECT_NAME
+project_repo: $REPO_PATH"
+    } | run_script "$script")
+
+    # Optional: pipe through review (skip if --no-review or to save time)
+    if [[ -f "$SCRIPTS/review.md" && "${NO_REVIEW:-}" != "true" ]]; then
+        echo "==> Reviewing $channel..." >&2
+        REVIEWED=$(echo "$CONTENT" | run_script "$SCRIPTS/review.md") || true
+        # review.md outputs PASS or FAIL followed by corrected content
+        if echo "$REVIEWED" | head -1 | grep -q "^PASS"; then
+            # Extract content after PASS line
+            PASS_CONTENT=$(echo "$REVIEWED" | tail -n +3)
+            if [[ -n "$PASS_CONTENT" ]]; then
+                CONTENT="$PASS_CONTENT"
+            fi
+        elif echo "$REVIEWED" | head -1 | grep -q "^FAIL"; then
+            # Extract corrected content after the FAIL verdict + issues
+            # Look for the content after the blank line following issues
+            CORRECTED=$(echo "$REVIEWED" | sed '1,/^$/d' | sed '1,/^$/d')
+            if [[ -n "$CORRECTED" ]]; then
+                CONTENT="$CORRECTED"
+            fi
+        fi
+    fi
+
+    echo "$CONTENT" > "$OUTPUT_DIR/$channel.md"
+    echo "==> Saved $OUTPUT_DIR/$channel.md" >&2
+done
+
+# --- Stage 3: Chrome posting (optional) ---
+
+if [[ "$CHROME" == true && -n "$ACCOUNTS" ]]; then
+    echo "==> Posting via Chrome..." >&2
+    {
+        for channel in "${CHAN_LIST[@]}"; do
+            channel=$(echo "$channel" | tr -d ' ')
+            outfile="$OUTPUT_DIR/$channel.md"
+            [[ -f "$outfile" ]] && assemble_payload "$channel" "$outfile"
+        done
+        assemble_inline "accounts" "$ACCOUNTS"
+    } | run_script "$SCRIPTS/post.md"
+fi
+
+echo "==> Done. Output in $OUTPUT_DIR/" >&2

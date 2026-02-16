@@ -76,34 +76,172 @@ shipit/
 10. Add `--chrome` and `--accounts` flags to orchestrator
 11. Test: `./shipit ~/projects/airun --chrome --accounts x`
 
-### Phase 3: Ship (45 min)
+### Phase 3: Ship
 12. Full README with architecture and quick start
 13. Commit example outputs
-14. Record 3-min demo video
-15. Push to public GitHub, submit at https://cerebralvalley.ai/e/claude-code-hackathon/hackathon/submit
+14. Push to public GitHub
 
 ## Implementation Details
 
-### The `shipit` Orchestrator (bash)
+### The `shipit` Orchestrator (bash) — Concrete Skeleton
 
-Simplified version of andi-promote's `stages/generate` + `campaign-utils.sh`. Key functions:
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-- Parse CLI args: repo path, --since, --channels, --live, --chrome, --accounts
-- Gather repo context: README, CHANGELOG, package.json/Cargo.toml/etc, `git log --oneline -20`, `git diff` if --since
-- Pipe context to `scripts/analyze.md` → save briefing
-- For each channel: pipe briefing to channel script → pipe to review → save output
-- If --chrome: pipe outputs to `scripts/post.md`
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPTS="$SCRIPT_DIR/scripts"
+OUTPUT_DIR="./output"
+DEFAULT_CHANNELS="notes,blog,x,linkedin,reddit"
 
-**Payload format** (same `=== SECTION:` delimiter pattern as andi-promote):
+# --- Helpers ---
+
+assemble_payload() {
+    # Usage: assemble_payload SECTION_NAME FILE_PATH
+    while [[ $# -ge 2 ]]; do
+        local section="$1" file="$2"; shift 2
+        if [[ -f "$file" ]]; then
+            echo "=== SECTION: $section ==="
+            echo ""
+            cat "$file"
+            echo ""
+        fi
+    done
+}
+
+assemble_inline() {
+    # Usage: assemble_inline SECTION_NAME "content string"
+    local section="$1" content="$2"
+    echo "=== SECTION: $section ==="
+    echo ""
+    echo "$content"
+    echo ""
+}
+
+# --- CLI Arg Parsing ---
+
+REPO_PATH=""
+SINCE=""
+CHANNELS=""
+LIVE=false
+CHROME=false
+ACCOUNTS=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --since)    SINCE="$2"; shift 2 ;;
+        --channels) CHANNELS="$2"; shift 2 ;;
+        --live)     LIVE=true; shift ;;
+        --chrome)   CHROME=true; shift ;;
+        --accounts) ACCOUNTS="$2"; shift 2 ;;
+        -*)         echo "Unknown flag: $1" >&2; exit 1 ;;
+        *)          REPO_PATH="$1"; shift ;;
+    esac
+done
+
+REPO_PATH="${REPO_PATH:-.}"
+REPO_PATH="$(cd "$REPO_PATH" && pwd)"
+CHANNELS="${CHANNELS:-$DEFAULT_CHANNELS}"
+
+mkdir -p "$OUTPUT_DIR"
+
+# --- Gather Repo Context ---
+
+gather_repo_context() {
+    echo "Repository: $REPO_PATH"
+    echo ""
+    for f in README.md README.rst CHANGELOG.md CHANGES.md; do
+        [[ -f "$REPO_PATH/$f" ]] && { echo "--- File: $f ---"; cat "$REPO_PATH/$f"; echo ""; }
+    done
+    for f in package.json Cargo.toml pyproject.toml setup.py go.mod; do
+        [[ -f "$REPO_PATH/$f" ]] && { echo "--- File: $f ---"; cat "$REPO_PATH/$f"; echo ""; }
+    done
+    if [[ -d "$REPO_PATH/.git" ]]; then
+        echo "--- Recent commits ---"
+        git -C "$REPO_PATH" log --oneline -20
+        echo ""
+        if [[ -n "$SINCE" ]]; then
+            echo "--- Changes since $SINCE ---"
+            git -C "$REPO_PATH" log --oneline "$SINCE"..HEAD
+            echo ""
+        fi
+    fi
+}
+
+# --- Stage 1: Analyze ---
+
+echo "==> Analyzing repo..." >&2
+BRIEFING=$(gather_repo_context | "$SCRIPTS/analyze.md")
+echo "$BRIEFING" > "$OUTPUT_DIR/briefing.md"
+echo "==> Briefing saved to $OUTPUT_DIR/briefing.md" >&2
+
+# Detect project metadata from repo
+PROJECT_NAME=$(basename "$REPO_PATH")
+# Try to extract from package.json, Cargo.toml, etc. — fallback to dir name
+if [[ -f "$REPO_PATH/package.json" ]]; then
+    PROJECT_NAME=$(grep -o '"name": *"[^"]*"' "$REPO_PATH/package.json" | head -1 | sed 's/"name": *"//;s/"//' || echo "$PROJECT_NAME")
+fi
+
+# --- Stage 2: Generate per channel ---
+
+IFS=',' read -ra CHAN_LIST <<< "$CHANNELS"
+for channel in "${CHAN_LIST[@]}"; do
+    channel=$(echo "$channel" | tr -d ' ')
+    # Map channel names to script files
+    case "$channel" in
+        x)        script="$SCRIPTS/x-thread.md" ;;
+        linkedin) script="$SCRIPTS/linkedin-post.md" ;;
+        reddit)   script="$SCRIPTS/reddit-post.md" ;;
+        blog)     script="$SCRIPTS/blog-post.md" ;;
+        notes)    script="$SCRIPTS/release-notes.md" ;;
+        *)        echo "Unknown channel: $channel, skipping" >&2; continue ;;
+    esac
+
+    if [[ ! -f "$script" ]]; then
+        echo "Script not found: $script, skipping" >&2
+        continue
+    fi
+
+    echo "==> Generating $channel..." >&2
+
+    CONTENT=$({
+        assemble_payload "briefing" "$OUTPUT_DIR/briefing.md"
+        assemble_inline "channel-config" "platform: $channel
+project_name: $PROJECT_NAME
+project_repo: $REPO_PATH"
+    } | "$script")
+
+    # Optional: pipe through review
+    if [[ -f "$SCRIPTS/review.md" ]]; then
+        CONTENT=$(echo "$CONTENT" | "$SCRIPTS/review.md")
+    fi
+
+    echo "$CONTENT" > "$OUTPUT_DIR/$channel.md"
+    echo "==> Saved $OUTPUT_DIR/$channel.md" >&2
+done
+
+# --- Stage 3: Chrome posting (optional) ---
+
+if [[ "$CHROME" == true && -n "$ACCOUNTS" ]]; then
+    echo "==> Posting via Chrome..." >&2
+    {
+        for channel in "${CHAN_LIST[@]}"; do
+            channel=$(echo "$channel" | tr -d ' ')
+            outfile="$OUTPUT_DIR/$channel.md"
+            [[ -f "$outfile" ]] && assemble_payload "$channel" "$outfile"
+        done
+        assemble_inline "accounts" "$ACCOUNTS"
+    } | "$SCRIPTS/post.md"
+fi
+
+echo "==> Done. Output in $OUTPUT_DIR/" >&2
 ```
-=== SECTION: briefing ===
-(output from analyze.md)
 
-=== SECTION: channel-config ===
-platform: x
-project_name: AIRun
-project_github: https://github.com/andisearch/airun
-```
+**Notes on this skeleton:**
+- `assemble_payload` and `assemble_inline` are the only two helpers needed for building `=== SECTION: ===` payloads
+- Each channel script receives a briefing + channel-config via stdin
+- The review step is optional — if `review.md` exists, content is piped through it
+- Chrome posting collects all generated outputs and pipes them with account info to `post.md`
 
 ### AIRun Script Patterns
 
@@ -136,6 +274,83 @@ Generate a {{platform}} post in {{style}} tone.
 **stdin reading:** Scripts automatically receive piped content. End prompt with `=== INPUT ===` to signal where stdin content begins.
 
 **stdout/stderr separation:** With `--live`, narration goes to stderr, final content goes to stdout. This enables clean piping: `./analyze.md < context | ./x-thread.md > output/x-thread.md`
+
+### Concrete Generation Script Template
+
+Every channel script follows this exact structure. Copy and customize:
+
+```markdown
+#!/usr/bin/env -S ai --opus --skip --live
+
+You are generating a [CHANNEL_TYPE] for a product launch.
+
+## Stdin Format
+
+Your input arrives as delimited sections:
+
+\```
+=== SECTION: briefing ===
+(Structured product briefing: what it does, features, how it works, what's new, code examples)
+
+=== SECTION: channel-config ===
+platform: [x|linkedin|reddit|blog|notes]
+project_name: ...
+project_repo: ...
+\```
+
+Sections may be absent — generate with what you have.
+
+## Output Format
+
+Output ONLY the final content. No preamble, no explanation, no markdown code fences wrapping the output.
+
+[CHANNEL-SPECIFIC FORMAT RULES GO HERE]
+
+## Writing Rules
+
+- No AI slop: delve, crucial, pivotal, vibrant, leverage, seamless, landscape, robust, foster, harness
+- No buzzwords: game-changer, cutting-edge, groundbreaking, revolutionary, transformative
+- No bold inline headers (**Key:** content), no staccato patterns, no em dash overuse
+- No generic headings ("Why This Matters"), no contrastive negation overuse ("It's not X — it's Y")
+- Be conversational, specific, use real code examples from the briefing
+- Write like a developer talking to developers
+
+=== INPUT ===
+```
+
+**The `=== INPUT ===` marker at the end is required** — it tells AIRun where stdin content begins in the prompt.
+
+### Concrete Review Script Template
+
+```markdown
+#!/usr/bin/env -S ai --sonnet --skip --live
+
+You are a writing quality reviewer. Check the content piped to you for AI writing tells.
+
+## Check 1: Vocabulary Tells
+Flag any of these words/phrases: delve, crucial, pivotal, vibrant, leverage, seamless, landscape,
+robust, foster, harness, game-changer, cutting-edge, groundbreaking, revolutionary, transformative,
+elevate, empower, unleash, dive into, at the end of the day, in today's world
+
+## Check 2: Structural Tells
+Flag: bold inline headers (**Key:** content), staccato sentences (4+ short declaratives in a row),
+excessive em dashes, generic section headings ("Why This Matters", "Key Takeaways"),
+contrastive negation overuse ("It's not X — it's Y"), rule of three (always exactly 3 items)
+
+## Output Format
+
+If no issues found:
+PASS
+
+If issues found:
+FAIL
+- [issue 1: quote the offending text and explain]
+- [issue 2: ...]
+
+Then output the corrected content with issues fixed.
+
+=== INPUT ===
+```
 
 ### scripts/analyze.md
 
@@ -200,32 +415,106 @@ Output: PASS/FAIL verdict with specific issues.
 
 Reference: `~/projects/andi-promote/scripts/review/check-writing.md`
 
-### scripts/post.md (Chrome browser posting)
+### scripts/post.md (Chrome browser posting) — Concrete Pattern
 
-Uses `--chrome` flag for MCP browser tools. Flow:
-1. Reads generated content + channel info from stdin
-2. Calls `tabs_context_mcp` to check Chrome connectivity (fail fast if no browser)
-3. Calls `update_plan` to declare target domains (e.g., `["x.com", "linkedin.com"]`) and approach
-4. For each specified account:
-   - Opens a new tab via `tabs_create_mcp`
-   - Navigates to the platform
-   - Checks if user is logged in (detect profile elements, compose buttons)
-   - If logged in: composes and posts content using `find`, `form_input`, `computer` tools
-   - If not logged in: skips with a warning
-5. Reports what was posted where via `--live` text streaming
+```markdown
+#!/usr/bin/env -S ai --opus --skip --chrome --live
 
-Safety: Only posts to platforms explicitly in `--accounts` AND with detected logged-in session.
+You are a social media posting agent. You receive generated content via stdin and post it to the user's logged-in social accounts using Chrome browser automation.
 
-Prerequisites for --chrome:
+## Stdin Format
+
+\```
+=== SECTION: x ===
+(Generated X/Twitter thread content)
+
+=== SECTION: linkedin ===
+(Generated LinkedIn post content)
+
+=== SECTION: reddit ===
+(Generated Reddit post content)
+
+=== SECTION: accounts ===
+x,linkedin
+\```
+
+## Step 0: Chrome Connectivity Check (FAIL FAST)
+
+Call `tabs_context_mcp` immediately. If it fails or returns no response, output this and STOP:
+```
+ABORT: Cannot connect to Chrome. Ensure:
+  1. Chrome is open and in the foreground
+  2. Claude in Chrome extension is installed and active
+  3. Extension shows 'Connected' status
+```
+
+## Step 1: Declare Plan
+
+Call `update_plan` with:
+- domains: ["x.com", "linkedin.com", "reddit.com"] (only the ones in accounts)
+- approach: ["Post generated content to each platform", "Check login status before posting", "Report results"]
+
+## Step 2: Post to Each Platform
+
+For each platform in the accounts list:
+
+### X/Twitter Posting Flow:
+1. `tabs_create_mcp` → get new tab ID
+2. `navigate` to "https://x.com/compose/post"
+3. `wait` 2 seconds for page load
+4. `find` query "post text area" or "What is happening" → get the compose box
+5. `computer` action "left_click" on the compose area
+6. `computer` action "type" with the first tweet text
+7. `find` query "Post button" → click it
+8. For thread tweets: wait 2s, click "Add another post", type next tweet, post
+9. Screenshot to confirm
+
+### LinkedIn Posting Flow:
+1. `tabs_create_mcp` → get new tab ID
+2. `navigate` to "https://www.linkedin.com/feed/"
+3. `wait` 2 seconds
+4. `find` query "Start a post" button → click it
+5. `wait` 1 second for compose modal
+6. `find` query "text editor" or "What do you want to talk about" → click it
+7. `computer` action "type" with the post content
+8. `find` query "Post button" → click it
+9. Screenshot to confirm
+
+### Reddit Posting Flow:
+1. `tabs_create_mcp` → get new tab ID
+2. `navigate` to "https://www.reddit.com/submit"
+3. Fill in title and body using `find` and `form_input`
+4. Select target subreddit
+5. Screenshot before posting (let user verify)
+
+## Login Detection
+
+Before posting on any platform, check if logged in:
+- `read_page` with filter "interactive" — look for compose buttons, profile avatars
+- If no profile/compose elements found → output "SKIPPED [platform]: not logged in" and continue
+
+## Output
+
+Report results as plain text:
+```
+Posted to X: [link or confirmation]
+Posted to LinkedIn: [link or confirmation]
+SKIPPED Reddit: not logged in
+```
+
+=== INPUT ===
+```
+
+**Prerequisites for --chrome:**
 1. Chrome open and in the foreground (not minimized)
 2. Claude in Chrome extension installed, active, showing "Connected"
 3. `ai` CLI installed (AIRun)
 
-Reference: `~/projects/yc-application-advisor/test/scripts/check-upload-flow.md` and `~/projects/yc-application-advisor/test/README.md`
+Reference (READ ONLY IF STUCK): `~/projects/yc-application-advisor/test/scripts/check-upload-flow.md`
 
-## Key Reference Files
+## Key Reference Files (READ ONLY IF STUCK)
 
-Read these before writing scripts — they contain the patterns to adapt:
+The inlined patterns above should be sufficient for all scripts. Only read these if you need more detail:
 
 | File | What to learn |
 |------|--------------|
