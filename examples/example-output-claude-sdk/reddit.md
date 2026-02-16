@@ -1,24 +1,21 @@
 ## What's in the box
 
-The `anthropic` package gives you typed sync and async clients for the full Messages API — streaming, tool use, batches, token counting, structured outputs. It runs on httpx with Pydantic models for responses and TypedDict params. Bedrock and Vertex AI each get their own client classes with native auth handling.
+The `anthropic` package gives you typed access to the full Anthropic REST API from Python 3.9+. Sync and async clients, SSE streaming, tool use, message batches, token counting, file uploads — all with Pydantic models and autocomplete.
+
+Recent releases have added a few things worth calling out:
+
+- **Claude Opus 4.6** with fast-mode enabled
+- **Structured Outputs** — constrain model output to a JSON schema via `output_config`
+- **`@beta_tool` decorator** — define tools as plain Python functions, let the SDK handle the schema generation and tool-call loop
+- **aiohttp backend** — drop-in alternative to httpx for async workloads
+- **Adaptive thinking** — support for thinking/reasoning blocks in responses
+
+## Quick start
 
 ```sh
 pip install anthropic
+export ANTHROPIC_API_KEY="my-anthropic-api-key"
 ```
-
-## What changed recently
-
-**v0.79.0** added the speed parameter for Opus 4.6's fast mode and fixed its passthrough in sync beta `count_tokens`.
-
-**v0.78.0** brought Claude Opus 4.6 model support and adaptive thinking (reasoning traces).
-
-**v0.77.x** introduced structured outputs — you can now pass `output_config` to constrain responses to a JSON schema, which is useful if you're tired of wrestling with freeform model output.
-
-**v0.76.0** added raw JSON schema passthrough for `messages.stream()`, server-side tools in the tool runner, and binary request streaming.
-
-## Code examples
-
-Basic usage:
 
 ```python
 from anthropic import Anthropic
@@ -32,37 +29,9 @@ message = client.messages.create(
 print(message.content)
 ```
 
-The tool runner is the feature I find most interesting. You decorate a function, hand it to the runner, and the SDK handles the call loop — Claude asks to use the tool, the SDK executes your function, sends the result back, and repeats until Claude has a final answer:
+## Streaming
 
-```python
-import json
-import rich
-from anthropic import Anthropic, beta_tool
-
-client = Anthropic()
-
-@beta_tool
-def get_weather(location: str) -> str:
-    """Lookup the weather for a given city.
-
-    Args:
-        location: The city and state, e.g. San Francisco, CA
-    Returns:
-        A dictionary with location, temperature, and condition.
-    """
-    return json.dumps({"location": location, "temperature": "68°F", "condition": "Sunny"})
-
-runner = client.beta.messages.tool_runner(
-    max_tokens=1024,
-    model="claude-sonnet-4-5-20250929",
-    tools=[get_weather],
-    messages=[{"role": "user", "content": "What is the weather in SF?"}],
-)
-for message in runner:
-    rich.print(message)
-```
-
-Async streaming with text accumulation:
+The `stream()` helper accumulates content blocks and gives you a `.text_stream` iterator:
 
 ```python
 import asyncio
@@ -79,30 +48,73 @@ async def main() -> None:
         async for text in stream.text_stream:
             print(text, end="", flush=True)
         print()
+    message = await stream.get_final_message()
+    print(message.to_json())
 
 asyncio.run(main())
 ```
 
-Token counting before you send:
+## Tool use with @beta_tool
+
+Define a tool as a function. The decorator pulls the schema from the docstring and type hints. The `tool_runner` handles the back-and-forth loop automatically:
 
 ```python
-count = client.messages.count_tokens(
+import json
+import rich
+from anthropic import Anthropic, beta_tool
+
+client = Anthropic()
+
+@beta_tool
+def get_weather(location: str) -> str:
+    """Lookup the weather for a given city in either celsius or fahrenheit
+
+    Args:
+        location: The city and state, e.g. San Francisco, CA
+    Returns:
+        A dictionary containing the location, temperature, and weather condition.
+    """
+    return json.dumps({"location": location, "temperature": "68°F", "condition": "Sunny"})
+
+runner = client.beta.messages.tool_runner(
+    max_tokens=1024,
     model="claude-sonnet-4-5-20250929",
-    messages=[{"role": "user", "content": "Hello, world"}],
+    tools=[get_weather],
+    messages=[{"role": "user", "content": "What is the weather in SF?"}],
 )
-print(count.input_tokens)  # 10
+for message in runner:
+    rich.print(message)
 ```
 
-## Other details worth knowing
+## Bedrock and Vertex
 
-- Default 2 retries with exponential backoff, 10-minute timeout
-- `.with_raw_response` if you need headers
-- Auto-pagination on list endpoints
-- Optional `aiohttp` backend if you prefer it over httpx for async
-- Python 3.9+
+Both work with minimal config changes:
 
-Full docs and source: the SDK is generated via Stainless and lives on PyPI as `anthropic`.
+```python
+from anthropic import AnthropicBedrock
 
-## Question
+client = AnthropicBedrock()
+message = client.messages.create(
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello!"}],
+    model="anthropic.claude-sonnet-4-5-20250929-v1:0",
+)
+```
 
-For those of you using tool use in production — are you finding the auto-running tool runner pattern useful, or do you prefer to manage the tool call loop yourself for more control over retry logic and error handling? Curious how people are approaching this.
+Vertex follows the same pattern with `AnthropicVertex`.
+
+## Install
+
+```sh
+pip install anthropic
+# Optional backends:
+pip install anthropic[aiohttp]
+pip install anthropic[bedrock]
+pip install anthropic[vertex]
+```
+
+Repo: check the project repository for full docs and examples.
+
+---
+
+For those of you already using the SDK in production — how are you handling the tool-use loop in practice? Are you using the new `tool_runner` or rolling your own loop? Curious what patterns people have settled on.

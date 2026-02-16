@@ -1,38 +1,28 @@
 # Anthropic Python SDK — v0.79.0
 
 ## Added
-- **Fast mode for Claude Opus 4.6** — New `speed` parameter enables faster output from Claude Opus 4.6
-- **Adaptive thinking** — Support for extended thinking and reasoning traces in Claude Opus 4.6
-- **Structured Outputs** — Constrain model responses to JSON schemas via `output_config` in the Messages API
-- **Claude Opus 4.6 model support** — Full SDK support for the latest Claude model
+
+- **Claude Opus 4.6 support** — New model `claude-opus-4-6` now available, including fast-mode output
+- **Adaptive thinking** — Support for thinking/reasoning blocks in responses, with context management for clearing thinking history
+- **Structured Outputs** — Constrain model output to JSON schemas via the `output_config` parameter in the Messages API
+- **Raw JSON schema support** for `messages.stream()`
+- **Binary request streaming** support
+- **Server-side tools** support in the tool runner
 
 ## Changed
+
 - Custom JSON encoder for extended type support
-- Raw JSON schema passthrough for `messages.stream()`
-- Binary request streaming support
-- Server-side tools support in the tool runner
+- Streams are now always closed properly
 
 ## Fixed
-- Speed parameter passthrough in sync beta `count_tokens`
-- Structured output beta header behavior
-- Stream closure issues
+
+- `speed` parameter now correctly passed through in sync beta `count_tokens`
+- Structured output beta header handling when `output_format` is omitted
 
 ## Usage Examples
 
-**Fast mode with Claude Opus 4.6:**
-```python
-from anthropic import Anthropic
+**Streaming with the text_stream helper:**
 
-client = Anthropic()
-message = client.messages.create(
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "Hello, Claude"}],
-    model="claude-opus-4-6",
-)
-print(message.content)
-```
-
-**Streaming with text accumulation:**
 ```python
 import asyncio
 from anthropic import AsyncAnthropic
@@ -48,13 +38,17 @@ async def main() -> None:
         async for text in stream.text_stream:
             print(text, end="", flush=True)
         print()
+    message = await stream.get_final_message()
+    print(message.to_json())
 
 asyncio.run(main())
 ```
 
-**Tool use with `@beta_tool` decorator:**
+**Tool use with @beta_tool decorator and auto-runner:**
+
 ```python
 import json
+import rich
 from anthropic import Anthropic, beta_tool
 
 client = Anthropic()
@@ -75,31 +69,27 @@ runner = client.beta.messages.tool_runner(
     messages=[{"role": "user", "content": "What is the weather in SF?"}],
 )
 for message in runner:
-    print(message)
+    rich.print(message)
 ```
 
-**Structured outputs:**
+**Async with aiohttp backend:**
+
 ```python
-from anthropic import Anthropic
+import os
+import asyncio
+from anthropic import DefaultAioHttpClient, AsyncAnthropic
 
-client = Anthropic()
-message = client.messages.create(
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "Give me a JSON object with name and age"}],
-    model="claude-sonnet-4-5-20250929",
-    output_config={"json_schema": {"name": "person", "schema": {"type": "object", "properties": {"name": {"type": "string"}, "age": {"type": "integer"}}}}},
-)
-print(message.content)
-```
+async def main() -> None:
+    async with AsyncAnthropic(
+        api_key=os.environ.get("ANTHROPIC_API_KEY"),
+        http_client=DefaultAioHttpClient(),
+    ) as client:
+        message = await client.messages.create(
+            max_tokens=1024,
+            messages=[{"role": "user", "content": "Hello, Claude"}],
+            model="claude-sonnet-4-5-20250929",
+        )
+        print(message.content)
 
-**Token counting:**
-```python
-from anthropic import Anthropic
-
-client = Anthropic()
-count = client.messages.count_tokens(
-    model="claude-sonnet-4-5-20250929",
-    messages=[{"role": "user", "content": "Hello, world"}],
-)
-print(count.input_tokens)
+asyncio.run(main())
 ```

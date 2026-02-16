@@ -169,9 +169,15 @@ project_repo: $REPO_PATH"
                 CONTENT="$PASS_CONTENT"
             fi
         elif echo "$REVIEWED" | head -1 | grep -q "^FAIL"; then
-            # Extract corrected content after the FAIL verdict + issues
-            # Look for the content after the blank line following issues
-            CORRECTED=$(echo "$REVIEWED" | sed '1,/^$/d' | sed '1,/^$/d')
+            # Extract corrected content after the FAIL verdict + issue lines
+            # Skip FAIL line, then skip all "- [issue]" lines and surrounding blanks
+            CORRECTED=$(echo "$REVIEWED" | awk '
+                BEGIN { past_issues = 0 }
+                NR == 1 { next }
+                !past_issues && /^- / { next }
+                !past_issues && /^[[:space:]]*$/ { next }
+                { past_issues = 1; print }
+            ')
             if [[ -n "$CORRECTED" ]]; then
                 CONTENT="$CORRECTED"
             fi
