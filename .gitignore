@@ -1,0 +1,12 @@
+# ShipIt output (generated per-run, not committed)
+output/
+
+# macOS
+.DS_Store
+
+# Shell / editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
