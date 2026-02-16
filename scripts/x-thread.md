@@ -20,7 +20,23 @@ Sections may be absent — generate with what you have.
 
 ## Output Format
 
-Output ONLY the thread content. Start immediately with `## 1` — no preamble, no "I'll review...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be `## 1`.
+Output ONLY the thread content with YAML frontmatter. No preamble, no "I'll review...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be `---` (the frontmatter opening).
+
+Start with this exact frontmatter structure:
+
+```yaml
+---
+title: "Descriptive title for the thread"
+created: YYYY-MM-DDTHH:MM
+platform: x
+status: draft
+tags:
+  - tag1
+  - tag2
+---
+```
+
+After the closing `---`, format as numbered tweets. Never use inline hashtags (#tag) in tweet text. All tags go in the YAML frontmatter `tags` field.
 
 Format as numbered tweets:
 

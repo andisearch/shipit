@@ -20,14 +20,30 @@ Sections may be absent — generate with what you have.
 
 ## Output Format
 
-Output ONLY the Reddit post. Start immediately with `**Title:**` — no preamble, no "I'll review...", no "Here's a Reddit post...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be `**Title:**`.
+Output ONLY the Reddit post with YAML frontmatter. No preamble, no "I'll review...", no "Here's a Reddit post...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be `---` (the frontmatter opening).
+
+Start with this exact frontmatter structure:
+
+```yaml
+---
+title: "Strong, specific post title — not clickbait"
+created: YYYY-MM-DDTHH:MM
+platform: reddit
+status: draft
+tags:
+  - tag1
+  - tag2
+---
+```
+
+After the closing `---`, start with `**TL;DR:**` — the title is in the frontmatter, not in the body.
+
+Never use inline hashtags (#tag) in content. All tags go in the YAML frontmatter `tags` field.
 
 ## Reddit Format Rules
 
 Format:
 ```
-**Title:** [Strong, specific title — not clickbait]
-
 **TL;DR:** [2-3 sentences max]
 
 [Body with markdown headers for sections]

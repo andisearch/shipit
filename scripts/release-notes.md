@@ -20,13 +20,24 @@ Sections may be absent — generate with what you have.
 
 ## Output Format
 
-Output ONLY the final release notes. Start immediately with the `# Project Name` header — no preamble, no "I'll review...", no "Here are the release notes...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be the `#` header.
+Output ONLY the final release notes with YAML frontmatter. No preamble, no "I'll review...", no "Here are the release notes...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be `---` (the frontmatter opening).
 
-Format as clean markdown release notes:
+Start with this exact frontmatter structure:
+
+```yaml
+---
+title: "Project Name — vX.Y.Z"
+created: YYYY-MM-DDTHH:MM
+platform: notes
+status: draft
+tags:
+  - release
+---
+```
+
+After the closing `---`, format as clean markdown release notes (no `# Title` — the title is in frontmatter):
 
 ```
-# [Project Name] — [Version or "Latest Release"]
-
 ## Added
 - Feature description with brief explanation
 - Another feature
@@ -41,6 +52,8 @@ Format as clean markdown release notes:
 
 (Real code examples showing new features)
 ```
+
+Never use inline hashtags (#tag) in content. All tags go in the YAML frontmatter `tags` field.
 
 ## Writing Rules
 

@@ -64,7 +64,11 @@ CLONE_DIR=""
 if [[ "$REPO_PATH" =~ ^https?:// ]]; then
     CLONE_DIR=$(mktemp -d)
     echo "==> Cloning $REPO_PATH..." >&2
-    git clone --depth 1 "$REPO_PATH" "$CLONE_DIR/repo" >&2
+    if [[ -n "$SINCE" ]]; then
+        git clone "$REPO_PATH" "$CLONE_DIR/repo" >&2
+    else
+        git clone --depth 1 "$REPO_PATH" "$CLONE_DIR/repo" >&2
+    fi
     REPO_PATH="$CLONE_DIR/repo"
 fi
 
@@ -78,13 +82,9 @@ RUN_DIR=$(mktemp -d)
 trap 'rm -rf "$RUN_DIR" $CLONE_DIR' EXIT
 
 # Wrapper to run an AI script from the clean temp dir
-# Strip --live from shebang so content goes to stdout reliably
 run_script() {
     local script="$1"
-    local tmp="$RUN_DIR/_run_$(basename "$script")"
-    sed '1s/ --live//' "$script" > "$tmp"
-    chmod +x "$tmp"
-    (cd "$RUN_DIR" && "$tmp")
+    (cd "$RUN_DIR" && "$script")
 }
 
 # --- Gather Repo Context ---
@@ -165,6 +165,8 @@ project_repo: $REPO_PATH"
     if [[ -f "$SCRIPTS/review.md" && "${NO_REVIEW:-}" != "true" ]]; then
         echo "==> Reviewing $channel..." >&2
         REVIEWED=$(echo "$CONTENT" | run_script "$SCRIPTS/review.md") || true
+        # Strip leading --- content marker from review output
+        REVIEWED=$(echo "$REVIEWED" | sed '1{/^---$/d;}')
         # review.md outputs PASS or FAIL followed by corrected content
         if echo "$REVIEWED" | head -1 | grep -q "^PASS"; then
             # Content passed review — keep original CONTENT unchanged

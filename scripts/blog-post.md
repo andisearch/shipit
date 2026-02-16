@@ -20,14 +20,33 @@ Sections may be absent — generate with what you have.
 
 ## Output Format
 
-Output ONLY the blog post. Start immediately with the H1 title (`# Title`) — no preamble, no "I'll review...", no "Here's a blog post...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be the `# Title`.
+Output ONLY the blog post with YAML frontmatter. No preamble, no "I'll review...", no "Here's a blog post...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be `---` (the frontmatter opening).
 
-Write a full blog post with:
+Start with this exact frontmatter structure:
 
-1. A compelling title as an H1
-2. Body structured as: what it is → why it exists → how it works → what's next
-3. Real code examples from the briefing
-4. A specific ending (not a generic CTA)
+```yaml
+---
+title: "Search-optimized title, primary keyword first, <60 chars"
+description: "Meta description, 120-155 chars"
+created: YYYY-MM-DDTHH:MM
+platform: blog
+status: draft
+tags:
+  - tag1
+  - tag2
+keywords:
+  - primary keyword
+  - secondary keyword
+---
+```
+
+After the closing `---`, write the blog post body (no `# Title` — the title is in frontmatter):
+
+1. Body structured as: what it is → why it exists → how it works → what's next
+2. Real code examples from the briefing
+3. A specific ending (not a generic CTA)
+
+Never use inline hashtags (#tag) in content. All tags go in the YAML frontmatter `tags` field.
 
 ## Writing Rules
 

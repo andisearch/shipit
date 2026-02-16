@@ -1,54 +1,67 @@
-# Anthropic Python SDK — v0.79.0
+---
+title: "Anthropic Python SDK — v0.79.0"
+created: 2026-02-16T00:00
+platform: notes
+status: draft
+tags:
+  - release
+  - anthropic
+  - python-sdk
+---
 
 ## Added
 
-- **Claude Opus 4.6 support** — New model `claude-opus-4-6` now available, including fast-mode output
-- **Adaptive thinking** — Support for thinking/reasoning blocks in responses, with context management for clearing thinking history
-- **Structured Outputs** — Constrain model output to JSON schemas via the `output_config` parameter in the Messages API
-- **Raw JSON schema support** for `messages.stream()`
-- **Binary request streaming** support
-- **Server-side tools** support in the tool runner
+- **Fast mode for Claude Opus 4.6** — New `speed` parameter enables fast-mode output on Claude Opus 4.6 models
+- **Adaptive thinking** — Support for thinking/reasoning content blocks with context management
+- **Structured outputs** — JSON schema-based output formatting via `output_config` parameter in the Messages API
+- **Server-side tools in tool runner** — `client.beta.messages.tool_runner()` now supports server-side tools
+- **Raw JSON schema support** in `messages.stream()`
+- **Binary request streaming**
 
 ## Changed
 
-- Custom JSON encoder for extended type support
-- Streams are now always closed properly
+- New `BetaUsage` fields added to beta response models
+- Custom JSON encoder for extended type support in structured outputs
 
 ## Fixed
 
-- `speed` parameter now correctly passed through in sync beta `count_tokens`
-- Structured output beta header handling when `output_format` is omitted
+- `speed` parameter now correctly passes through in sync beta `count_tokens`
+- Structured output beta header fix
 
-## Usage Examples
+## Implementation Examples
 
-**Streaming with the text_stream helper:**
+**Fast mode with Claude Opus 4.6:**
 
 ```python
-import asyncio
-from anthropic import AsyncAnthropic
+from anthropic import Anthropic
 
-client = AsyncAnthropic()
-
-async def main() -> None:
-    async with client.messages.stream(
-        max_tokens=1024,
-        messages=[{"role": "user", "content": "Say hello there!"}],
-        model="claude-sonnet-4-5-20250929",
-    ) as stream:
-        async for text in stream.text_stream:
-            print(text, end="", flush=True)
-        print()
-    message = await stream.get_final_message()
-    print(message.to_json())
-
-asyncio.run(main())
+client = Anthropic()
+message = client.messages.create(
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello, Claude"}],
+    model="claude-opus-4-6",
+    speed="fast",
+)
+print(message.content)
 ```
 
-**Tool use with @beta_tool decorator and auto-runner:**
+**Structured outputs:**
 
 ```python
-import json
-import rich
+from anthropic import Anthropic
+
+client = Anthropic()
+message = client.messages.create(
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Describe the weather in SF"}],
+    model="claude-sonnet-4-5-20250929",
+    output_config={"json_schema": {"name": "weather", "schema": {"type": "object", "properties": {"temperature": {"type": "string"}, "condition": {"type": "string"}}}}},
+)
+```
+
+**Tool use with automatic execution:**
+
+```python
 from anthropic import Anthropic, beta_tool
 
 client = Anthropic()
@@ -60,7 +73,7 @@ def get_weather(location: str) -> str:
     Args:
         location: The city and state, e.g. San Francisco, CA
     """
-    return json.dumps({"location": location, "temperature": "68°F", "condition": "Sunny"})
+    return '{"location": location, "temperature": "68°F", "condition": "Sunny"}'
 
 runner = client.beta.messages.tool_runner(
     max_tokens=1024,
@@ -69,27 +82,5 @@ runner = client.beta.messages.tool_runner(
     messages=[{"role": "user", "content": "What is the weather in SF?"}],
 )
 for message in runner:
-    rich.print(message)
-```
-
-**Async with aiohttp backend:**
-
-```python
-import os
-import asyncio
-from anthropic import DefaultAioHttpClient, AsyncAnthropic
-
-async def main() -> None:
-    async with AsyncAnthropic(
-        api_key=os.environ.get("ANTHROPIC_API_KEY"),
-        http_client=DefaultAioHttpClient(),
-    ) as client:
-        message = await client.messages.create(
-            max_tokens=1024,
-            messages=[{"role": "user", "content": "Hello, Claude"}],
-            model="claude-sonnet-4-5-20250929",
-        )
-        print(message.content)
-
-asyncio.run(main())
+    print(message)
 ```

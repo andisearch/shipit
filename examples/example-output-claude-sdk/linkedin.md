@@ -1,55 +1,30 @@
-#!/usr/bin/env -S ai --opus --skip --live
-
-You are generating a LinkedIn post for a product launch.
-
-## Stdin Format
-
-Your input arrives as delimited sections:
-
-```
-=== SECTION: briefing ===
-(Structured product briefing: what it does, features, how it works, what's new, code examples)
-
-=== SECTION: channel-config ===
+---
+title: "Anthropic Python SDK v0.79 — Fast Mode for Claude Opus 4.6"
+created: 2026-02-16T10:00
 platform: linkedin
-project_name: ...
-project_repo: ...
-```
+status: draft
+tags:
+  - anthropic
+  - python
+  - sdk
+  - claude
+  - ai
+  - developer-tools
+  - open-source
+---
 
-Sections may be absent — generate with what you have.
+The Anthropic Python SDK just shipped fast mode for Claude Opus 4.6, and the developer experience keeps getting better.
 
-## Output Format
+We've been iterating on the SDK steadily over the past few months. v0.79 adds a `speed` parameter so you can get faster output from Opus 4.6. Before that, v0.77 brought structured outputs to the Messages API: define a JSON schema, get typed responses back. And v0.76 added server-side tools to the tool runner.
 
-Output ONLY the LinkedIn post. Start immediately with the hook line — no preamble, no "I'll review...", no "Here's a LinkedIn post...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be the hook text itself.
+The tool use workflow has evolved substantially. You decorate a Python function with `@beta_tool`, hand it to the tool runner, and the SDK handles the loop: calling the model, executing your function when requested, feeding results back. No manual orchestration.
 
-## LinkedIn Format Rules
+A few other things worth knowing about: token counting before you send a request, message batches for bulk processing, and first-class support for Bedrock and Vertex if you're running Claude through AWS or GCP. The async story is solid too, with full parity between sync and async clients and aiohttp as an optional backend.
 
-- Hook in the first 2 lines (under 210 characters) — this is what shows before "...see more"
-- NO links in the post body — links kill LinkedIn reach
-- Professional but personal tone — first person, tell a story
-- End the main post body naturally
-- After the post body, add a `**First comment:**` section with links (GitHub, website, etc.)
+The SDK is generated via Stainless, which means the type coverage stays tight as the API surface grows. Every response comes back as a Pydantic model, and every parameter is typed.
 
-Example structure:
-```
-[Hook line — grabs attention in 210 chars]
+If you're building with Claude in Python, the gap between "call an API" and "build something production-grade" keeps shrinking.
 
-[Body — 3-5 short paragraphs telling the story, showing what you built]
-
-[Closing thought or soft CTA]
-
-**First comment:**
-Link to repo: [url]
-```
-
-## Writing Rules
-
-- No AI slop: delve, crucial, pivotal, vibrant, leverage, seamless, landscape, robust, foster, harness
-- No buzzwords: game-changer, cutting-edge, groundbreaking, revolutionary, transformative
-- No bold inline headers (**Key:** content), no staccato patterns, no em dash overuse
-- No generic headings, no contrastive negation overuse ("It's not X — it's Y")
-- No hashtag spam — 3 hashtags max, only if genuinely relevant
-- Be conversational and specific — use real details from the briefing
-- Write like a person sharing something they built, not a marketing team
-
-=== INPUT ===
+GitHub repo: https://github.com/anthropics/anthropic-sdk-python
+PyPI: https://pypi.org/project/anthropic/
+Docs: https://docs.anthropic.com/en/api/client-sdks/python
