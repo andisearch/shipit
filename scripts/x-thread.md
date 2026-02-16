@@ -20,7 +20,7 @@ Sections may be absent — generate with what you have.
 
 ## Output Format
 
-Output ONLY the thread content. No preamble, no explanation, no markdown code fences wrapping the output.
+Output ONLY the thread content. Start immediately with `## 1` — no preamble, no "I'll review...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be `## 1`.
 
 Format as numbered tweets:
 

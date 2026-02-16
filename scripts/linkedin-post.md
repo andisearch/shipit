@@ -20,7 +20,7 @@ Sections may be absent — generate with what you have.
 
 ## Output Format
 
-Output ONLY the LinkedIn post. No preamble, no explanation, no markdown code fences wrapping the output.
+Output ONLY the LinkedIn post. Start immediately with the hook line — no preamble, no "I'll review...", no "Here's a LinkedIn post...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be the hook text itself.
 
 ## LinkedIn Format Rules
 

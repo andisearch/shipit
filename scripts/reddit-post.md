@@ -20,7 +20,7 @@ Sections may be absent — generate with what you have.
 
 ## Output Format
 
-Output ONLY the Reddit post. No preamble, no explanation, no markdown code fences wrapping the output.
+Output ONLY the Reddit post. Start immediately with `**Title:**` — no preamble, no "I'll review...", no "Here's a Reddit post...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be `**Title:**`.
 
 ## Reddit Format Rules
 

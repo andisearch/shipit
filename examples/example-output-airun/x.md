@@ -1,6 +1,3 @@
-
-
-I'll review the briefing and channel config, then generate the thread.
 ## 1
 
 Your markdown files are sitting in git doing nothing. What if they could run themselves?

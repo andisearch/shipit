@@ -20,7 +20,7 @@ Sections may be absent — generate with what you have.
 
 ## Output Format
 
-Output ONLY the final release notes. No preamble, no explanation, no markdown code fences wrapping the output.
+Output ONLY the final release notes. Start immediately with the `# Project Name` header — no preamble, no "I'll review...", no "Here are the release notes...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be the `#` header.
 
 Format as clean markdown release notes:
 

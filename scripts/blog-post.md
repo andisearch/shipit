@@ -20,7 +20,7 @@ Sections may be absent — generate with what you have.
 
 ## Output Format
 
-Output ONLY the blog post. No preamble, no explanation, no markdown code fences wrapping the output.
+Output ONLY the blog post. Start immediately with the H1 title (`# Title`) — no preamble, no "I'll review...", no "Here's a blog post...", no explanation, no markdown code fences wrapping the output. Your very first line of output must be the `# Title`.
 
 Write a full blog post with:
 

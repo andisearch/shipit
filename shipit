@@ -78,9 +78,13 @@ RUN_DIR=$(mktemp -d)
 trap 'rm -rf "$RUN_DIR" $CLONE_DIR' EXIT
 
 # Wrapper to run an AI script from the clean temp dir
+# Strip --live from shebang so content goes to stdout reliably
 run_script() {
     local script="$1"
-    (cd "$RUN_DIR" && "$script")
+    local tmp="$RUN_DIR/_run_$(basename "$script")"
+    sed '1s/ --live//' "$script" > "$tmp"
+    chmod +x "$tmp"
+    (cd "$RUN_DIR" && "$tmp")
 }
 
 # --- Gather Repo Context ---
@@ -163,11 +167,8 @@ project_repo: $REPO_PATH"
         REVIEWED=$(echo "$CONTENT" | run_script "$SCRIPTS/review.md") || true
         # review.md outputs PASS or FAIL followed by corrected content
         if echo "$REVIEWED" | head -1 | grep -q "^PASS"; then
-            # Extract content after PASS line
-            PASS_CONTENT=$(echo "$REVIEWED" | tail -n +3)
-            if [[ -n "$PASS_CONTENT" ]]; then
-                CONTENT="$PASS_CONTENT"
-            fi
+            # Content passed review — keep original CONTENT unchanged
+            :
         elif echo "$REVIEWED" | head -1 | grep -q "^FAIL"; then
             # Extract corrected content after the FAIL verdict + issue lines
             # Skip FAIL line, then skip all "- [issue]" lines and surrounding blanks
