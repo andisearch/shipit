@@ -4,6 +4,8 @@
 
 [![ShipIt Demo](https://img.youtube.com/vi/StVULSJ7v64/hqdefault.jpg)](https://www.youtube.com/watch?v=StVULSJ7v64)
 
+[Watch the demo video](https://www.youtube.com/watch?v=StVULSJ7v64)
+
 ```bash
 ./shipit ~/projects/my-app --live
 ```
