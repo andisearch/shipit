@@ -2,7 +2,7 @@
 
 > One command turns your repo into a full product launch.
 
-[![ShipIt Demo](https://img.youtube.com/vi/StVULSJ7v64/maxresdefault.jpg)](https://www.youtube.com/watch?v=StVULSJ7v64)
+[![ShipIt Demo](https://img.youtube.com/vi/StVULSJ7v64/hqdefault.jpg)](https://www.youtube.com/watch?v=StVULSJ7v64)
 
 ```bash
 ./shipit ~/projects/my-app --live
