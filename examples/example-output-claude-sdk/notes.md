@@ -11,24 +11,24 @@ tags:
 
 ## Added
 
-- **Fast mode for Claude Opus 4.6** — New `speed` parameter enables fast-mode output on Claude Opus 4.6 models
-- **Adaptive thinking** — Support for thinking/reasoning content blocks with context management
-- **Structured outputs** — JSON schema-based output formatting via `output_config` parameter in the Messages API
-- **Server-side tools in tool runner** — `client.beta.messages.tool_runner()` now supports server-side tools
-- **Raw JSON schema support** in `messages.stream()`
-- **Binary request streaming**
+- Fast mode for Claude Opus 4.6: new `speed` parameter lets you opt into faster output from `claude-opus-4-6`
+- Structured Outputs: JSON schema-based output formatting via `output_config` in the Messages API (v0.77.0)
+- Adaptive thinking: support for thinking/reasoning blocks with context management (v0.78.0)
+- Server-side tools in tool runner: tool runner now handles server-side tools alongside client-defined ones (v0.76.0)
+- Raw JSON schema support in `messages.stream()` (v0.76.0)
+- Binary request streaming (v0.76.0)
+- Custom JSON encoder for extended type support in requests (v0.77.1)
 
 ## Changed
 
-- New `BetaUsage` fields added to beta response models
-- Custom JSON encoder for extended type support in structured outputs
+- Claude Opus 4.6 model now available as `claude-opus-4-6` (v0.78.0)
 
 ## Fixed
 
-- `speed` parameter now correctly passes through in sync beta `count_tokens`
-- Structured output beta header fix
+- `speed` parameter now passes through correctly in sync beta `count_tokens` (v0.79.0)
+- Structured output beta header no longer sent when format is omitted (v0.77.1)
 
-## Implementation Examples
+## Usage Examples
 
 **Fast mode with Claude Opus 4.6:**
 
@@ -48,18 +48,25 @@ print(message.content)
 **Structured outputs:**
 
 ```python
-from anthropic import Anthropic
-
-client = Anthropic()
 message = client.messages.create(
     max_tokens=1024,
-    messages=[{"role": "user", "content": "Describe the weather in SF"}],
+    messages=[{"role": "user", "content": "Describe the weather"}],
     model="claude-sonnet-4-5-20250929",
-    output_config={"json_schema": {"name": "weather", "schema": {"type": "object", "properties": {"temperature": {"type": "string"}, "condition": {"type": "string"}}}}},
+    output_config={"json_schema": your_schema},
 )
 ```
 
-**Tool use with automatic execution:**
+**Token counting:**
+
+```python
+count = client.messages.count_tokens(
+    model="claude-sonnet-4-5-20250929",
+    messages=[{"role": "user", "content": "Hello, world"}],
+)
+print(count.input_tokens)  # 10
+```
+
+**Tool use with `@beta_tool` decorator:**
 
 ```python
 from anthropic import Anthropic, beta_tool
@@ -73,7 +80,7 @@ def get_weather(location: str) -> str:
     Args:
         location: The city and state, e.g. San Francisco, CA
     """
-    return '{"location": location, "temperature": "68°F", "condition": "Sunny"}'
+    return json.dumps({"location": location, "temperature": "68°F", "condition": "Sunny"})
 
 runner = client.beta.messages.tool_runner(
     max_tokens=1024,

@@ -1,5 +1,5 @@
 ---
-title: "Anthropic Python SDK v0.79 — Fast Mode, Structured Outputs, Tool Runner"
+title: "Anthropic Python SDK v0.79 — Fast Mode and Claude Opus 4.6"
 created: 2026-02-16T12:00
 platform: x
 status: draft
@@ -14,92 +14,91 @@ tags:
 
 ## 1
 
-Most API wrappers give you untyped dicts and leave you to figure out the rest.
+Most API wrappers just serialize JSON and call it a day.
 
-The best ones disappear — you just write Python and the API call happens to work.
-
-That's what the Anthropic Python SDK actually does well.
+The Anthropic Python SDK does something different — typed Pydantic models for every request and response, streaming with event iterators, and a tool runner that turns decorated Python functions into Claude-callable tools.
 
 ## 2
 
-Streaming responses in four lines:
+Five lines to talk to Claude:
 
 ```python
-stream = client.messages.create(
+from anthropic import Anthropic
+
+client = Anthropic()
+message = client.messages.create(
     max_tokens=1024,
-    messages=[{"role": "user", "content": "Hello"}],
-    model="claude-sonnet-4-5-20250929",
-    stream=True,
+    messages=[{"role": "user", "content": "Hello, Claude"}],
+    model="claude-opus-4-6",
 )
-for event in stream:
-    print(event.type)
 ```
 
-No websocket setup, no callback wiring. Just iterate.
+Sync, async, streaming — same interface either way.
 
 ## 3
 
-The tool runner is where it gets interesting. Decorate a function, pass it in, and the SDK handles the entire tool-use loop automatically:
+Tool use without the boilerplate. Decorate a function, pass it in, and the SDK handles schema extraction, invocation, and response routing:
 
 ```python
 @beta_tool
 def get_weather(location: str) -> str:
-    """Lookup the weather for a city"""
-    return json.dumps({"location": location, "temperature": "68°F"})
+    """Lookup the weather for a given city"""
+    return json.dumps({"temperature": "68°F"})
 
 runner = client.beta.messages.tool_runner(
-    model="claude-sonnet-4-5-20250929",
-    tools=[get_weather],
-    messages=[{"role": "user", "content": "Weather in SF?"}],
+    tools=[get_weather], ...
 )
 ```
 
 ## 4
 
-New in v0.77: structured outputs via `output_config`.
+Streaming that doesn't make you manage chunked responses manually:
 
-Instead of parsing free text or hoping the model follows your format instructions, you get JSON schema-validated responses directly from the API.
+```python
+async with client.messages.stream(
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Say hello"}],
+    model="claude-sonnet-4-5-20250929",
+) as stream:
+    async for text in stream.text_stream:
+        print(text, end="", flush=True)
+```
+
+Text accumulation and SDK-specific events built in.
 
 ## 5
 
-v0.79 adds fast mode for Claude Opus 4.6 — a `speed` parameter that gets you faster output from the same model.
+v0.79 adds fast mode for Claude Opus 4.6 — a new `speed` parameter that trades some depth for faster output.
 
-Same API surface, one extra parameter. No model swap, no quality tradeoff flags.
+Same model, same capabilities, just quicker when you need it.
 
 ## 6
 
-Token counting before you send:
+The SDK also covers the full API surface now:
 
-```python
-count = client.messages.count_tokens(
-    model="claude-sonnet-4-5-20250929",
-    messages=[{"role": "user", "content": "Hello, world"}],
-)
-print(count.input_tokens)  # 10
-```
-
-Know your costs upfront instead of after the fact.
+- Structured outputs via `output_config`
+- Message batches for bulk async processing
+- Token counting without creating a message
+- Prompt caching to cut repeated token costs
+- Adaptive thinking with context management
 
 ## 7
 
-The SDK also handles Bedrock and Vertex natively. Swap `Anthropic()` for `AnthropicBedrock()` or `AnthropicVertex()` and the auth, routing, and endpoint differences are handled for you.
+One SDK, three providers. Same code works across direct API, AWS Bedrock, and Google Vertex AI. Swap the client constructor and everything else stays the same.
 
-One codebase, three deployment targets.
+```python
+from anthropic import AnthropicBedrock
+client = AnthropicBedrock()
+```
 
 ## 8
 
-Async support mirrors the sync API exactly — `AsyncAnthropic` gives you the same methods with `await`. Works with both httpx and aiohttp backends.
+If you're building with Claude in Python, this is the maintained, typed, production-grade way to do it. Python 3.9+, retries with backoff out of the box, and auto-pagination for list endpoints.
 
-Pick your async HTTP library, the SDK adapts.
-
-## 9
-
-If you're building with Claude in Python, this is the starting point. Typed responses, automatic retries with backoff, Pydantic models throughout.
-
-`pip install anthropic` and go.
+`pip install anthropic`
 
 ## Reply (Link)
 
 GitHub: github.com/anthropics/anthropic-sdk-python
 
-Docs: docs.anthropic.com/en/api/client-sdks/python
+Docs and changelog in the repo. Latest release is v0.79.0.

@@ -1,7 +1,7 @@
 ---
-title: "Anthropic Python SDK: Typed API Access for Claude Models"
-description: "The Anthropic Python SDK provides sync and async clients, streaming, tool use, structured outputs, and integrations with Bedrock and Vertex AI."
-created: 2026-02-16T12:00
+title: "Anthropic Python SDK v0.79: Fast Mode, Structured Outputs"
+description: "The Anthropic Python SDK adds fast mode for Claude Opus 4.6, structured outputs, adaptive thinking, and tool use decorators in recent releases."
+created: 2026-02-16T10:00
 platform: blog
 status: draft
 tags:
@@ -11,26 +11,23 @@ tags:
   - claude
   - api
 keywords:
-  - anthropic python sdk
-  - claude api python
-  - anthropic sdk streaming
-  - claude tool use python
+  - Anthropic Python SDK
+  - Claude API Python
+  - Claude Opus 4.6
+  - structured outputs API
 ---
 
-The Anthropic Python SDK gives you typed, ergonomic access to the full Claude API from Python 3.9+. It covers everything from simple message creation to streaming, tool use, batch processing, and token counting, with both synchronous and asynchronous clients that share an identical interface.
+The Anthropic Python SDK has picked up a string of updates over the past few weeks. If you're building with Claude in Python, here's what landed and how to use it.
 
-## Getting started
+## What the SDK does
 
-Install the base package or add extras for your cloud provider:
+The `anthropic` package is a typed Python wrapper around the Anthropic REST API, covering sync and async clients, streaming, tool use, message batches, token counting, and integrations with AWS Bedrock and Google Vertex AI. It uses `httpx` for transport and Pydantic for request/response models.
 
 ```sh
 pip install anthropic
-pip install anthropic[bedrock]    # AWS Bedrock support
-pip install anthropic[vertex]     # Google Vertex support
-pip install anthropic[aiohttp]    # aiohttp async backend
 ```
 
-Set your `ANTHROPIC_API_KEY` environment variable (or pass `api_key` directly), and you're ready to go:
+Set your API key and you're ready:
 
 ```python
 from anthropic import Anthropic
@@ -44,37 +41,17 @@ message = client.messages.create(
 print(message.content)
 ```
 
-Every API response comes back as a Pydantic model, so you get full type checking and autocompletion in your editor without any extra work.
+## What's new in v0.78–0.79
 
-## Streaming
+**Claude Opus 4.6 and fast mode.** Version 0.78 added support for Claude Opus 4.6, and v0.79 introduced a `speed` parameter that enables fast mode on that model. A bug fix in v0.79 also ensures the speed parameter passes through correctly in the sync beta `count_tokens` path.
 
-For longer responses or real-time output, the SDK supports both low-level SSE iteration and a higher-level streaming helper that accumulates text for you:
+**Structured outputs.** Starting in v0.77, you can constrain Claude's responses to match a JSON schema via `output_config` in the Messages API. This is useful when you need machine-readable output without hoping the model follows your formatting instructions.
 
-```python
-import asyncio
-from anthropic import AsyncAnthropic
+**Adaptive thinking.** The SDK now supports thinking and reasoning blocks with context management, letting you work with Claude's intermediate reasoning steps.
 
-client = AsyncAnthropic()
+## Tool use with decorators
 
-async def main() -> None:
-    async with client.messages.stream(
-        max_tokens=1024,
-        messages=[{"role": "user", "content": "Say hello there!"}],
-        model="claude-sonnet-4-5-20250929",
-    ) as stream:
-        async for text in stream.text_stream:
-            print(text, end="", flush=True)
-    message = await stream.get_final_message()
-    print(message.to_json())
-
-asyncio.run(main())
-```
-
-The `stream=True` parameter on `messages.create()` gives you raw SSE events if you prefer finer control. The `.stream()` helper handles accumulation and exposes SDK-specific events on top.
-
-## Tool use
-
-Claude can call functions you define, and the SDK makes wiring that up straightforward. Decorate a Python function with `@beta_tool`, pass it to the tool runner, and the SDK handles the call loop automatically — sending the model's tool requests to your functions and feeding results back:
+The `@beta_tool` decorator turns a plain Python function into a tool Claude can call. The SDK extracts the function's docstring and type hints to build the tool schema automatically:
 
 ```python
 import json
@@ -104,16 +81,51 @@ for message in runner:
     rich.print(message)
 ```
 
-The decorator extracts parameter types and descriptions from your function's type hints and docstring, so there's no schema boilerplate to maintain.
+The `tool_runner` handles the back-and-forth of tool invocation for you: Claude decides to call `get_weather`, the runner executes it, and feeds the result back.
+
+## Streaming
+
+Two ways to stream. The low-level approach gives you raw SSE events:
+
+```python
+stream = client.messages.create(
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello, Claude"}],
+    model="claude-sonnet-4-5-20250929",
+    stream=True,
+)
+for event in stream:
+    print(event.type)
+```
+
+The higher-level `messages.stream()` helper accumulates text and exposes a `text_stream` iterator, which is cleaner for most use cases:
+
+```python
+import asyncio
+from anthropic import AsyncAnthropic
+
+client = AsyncAnthropic()
+
+async def main() -> None:
+    async with client.messages.stream(
+        max_tokens=1024,
+        messages=[{"role": "user", "content": "Say hello there!"}],
+        model="claude-sonnet-4-5-20250929",
+    ) as stream:
+        async for text in stream.text_stream:
+            print(text, end="", flush=True)
+        print()
+    message = await stream.get_final_message()
+    print(message.to_json())
+
+asyncio.run(main())
+```
 
 ## Token counting
 
-If you need to check input size before sending a request — for cost estimation or context window management — there's a dedicated endpoint:
+You can check how many tokens a request would use before sending it:
 
 ```python
-from anthropic import Anthropic
-
-client = Anthropic()
 count = client.messages.count_tokens(
     model="claude-sonnet-4-5-20250929",
     messages=[{"role": "user", "content": "Hello, world"}],
@@ -121,18 +133,20 @@ count = client.messages.count_tokens(
 print(count.input_tokens)  # 10
 ```
 
-## What shipped in recent releases
+This hits a dedicated endpoint without creating a message, so you're not billed for a completion.
 
-The v0.78–0.79 releases added support for Claude Opus 4.6, including a `speed` parameter for fast-mode output and adaptive thinking with context management. Structured outputs arrived in v0.77, letting you constrain responses to a JSON schema via the `output_config` parameter. The v0.76 release brought server-side tools support in the tool runner and raw JSON schema support in the streaming helper.
+## Installation options
 
-Other features available across the SDK: message batches for bulk async processing, automatic retries with exponential backoff on transient errors, file uploads, citation content blocks, and auto-paginating iterators for list endpoints.
+The base package covers the standard API. Extras pull in dependencies for specific integrations:
 
-## Cloud provider integrations
+```sh
+pip install anthropic[bedrock]   # AWS Bedrock
+pip install anthropic[vertex]    # Google Vertex AI
+pip install anthropic[aiohttp]   # aiohttp async backend
+```
 
-The SDK ships dedicated clients for AWS Bedrock (`AnthropicBedrock`) and Google Vertex AI (`AnthropicVertex` / `AsyncAnthropicVertex`). Each handles its provider's authentication flow — AWS profiles, regions, and session tokens for Bedrock; Google credentials for Vertex — while exposing the same message creation interface as the standard client.
+The SDK requires Python 3.9+ and handles retries with exponential backoff (two retries by default) and a 10-minute default timeout. Both are configurable on the client.
 
-## Under the hood
+## Links and resources
 
-The SDK is generated via Stainless and organized around resource classes that map to API endpoints. HTTP goes through httpx (with optional aiohttp for async), models are Pydantic, and async coordination uses anyio. The architecture means you can swap between sync and async with minimal code changes, and the type system catches malformed requests before they hit the network.
-
-Full documentation, additional examples, and the source code are available in the [anthropic-sdk-python](https://github.com/anthropics/anthropic-sdk-python) repository.
+The full changelog and API reference live in the [anthropic-sdk-python](https://github.com/anthropics/anthropic-sdk-python) repository. If you're upgrading from an older version, the structured outputs feature in v0.77+ and the fast mode parameter in v0.79 are the two changes most likely to affect your code. Both are additive, so existing code won't break.

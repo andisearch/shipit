@@ -117,13 +117,12 @@ gather_repo_context() {
 # --- Stage 1: Analyze ---
 
 echo "==> Analyzing repo: $REPO_PATH" >&2
-BRIEFING=$({
+{
     assemble_inline "repo" "$(gather_repo_context)"
     if [[ -n "$FOCUS" ]]; then
         assemble_inline "focus" "$FOCUS"
     fi
-} | run_script "$SCRIPTS/analyze.md")
-echo "$BRIEFING" > "$OUTPUT_DIR/briefing.md"
+} | run_script "$SCRIPTS/analyze.md" > "$OUTPUT_DIR/briefing.md"
 echo "==> Briefing saved to $OUTPUT_DIR/briefing.md" >&2
 
 # Detect project metadata from repo
@@ -154,26 +153,27 @@ for channel in "${CHAN_LIST[@]}"; do
 
     echo "==> Generating $channel..." >&2
 
-    CONTENT=$({
+    GENFILE="$RUN_DIR/_gen_${channel}.md"
+    {
         assemble_payload "briefing" "$OUTPUT_DIR/briefing.md"
         assemble_inline "channel-config" "platform: $channel
 project_name: $PROJECT_NAME
 project_repo: $REPO_PATH"
-    } | run_script "$script")
+    } | run_script "$script" > "$GENFILE"
 
     # Optional: pipe through review (skip if --no-review or to save time)
     if [[ -f "$SCRIPTS/review.md" && "${NO_REVIEW:-}" != "true" ]]; then
         echo "==> Reviewing $channel..." >&2
-        REVIEWED=$(echo "$CONTENT" | run_script "$SCRIPTS/review.md") || true
+        REVIEWED=$(cat "$GENFILE" | run_script "$SCRIPTS/review.md") || true
         # Strip leading --- content marker from review output
         REVIEWED=$(echo "$REVIEWED" | sed '1{/^---$/d;}')
         # review.md outputs PASS or FAIL followed by corrected content
-        if echo "$REVIEWED" | head -1 | grep -q "^PASS"; then
-            # Content passed review — keep original CONTENT unchanged
-            :
+        # Check anywhere in output for verdict (handles backtracking reviews)
+        if echo "$REVIEWED" | grep -qx "PASS"; then
+            # Review passed — use original generated content
+            cp "$GENFILE" "$OUTPUT_DIR/$channel.md"
         elif echo "$REVIEWED" | head -1 | grep -q "^FAIL"; then
             # Extract corrected content after the FAIL verdict + issue lines
-            # Skip FAIL line, then skip all "- [issue]" lines and surrounding blanks
             CORRECTED=$(echo "$REVIEWED" | awk '
                 BEGIN { past_issues = 0 }
                 NR == 1 { next }
@@ -181,13 +181,23 @@ project_repo: $REPO_PATH"
                 !past_issues && /^[[:space:]]*$/ { next }
                 { past_issues = 1; print }
             ')
-            if [[ -n "$CORRECTED" ]]; then
-                CONTENT="$CORRECTED"
+            # Sanity check: corrected content must be at least half the original length
+            ORIG_LINES=$(wc -l < "$GENFILE" | tr -d ' ')
+            CORR_LINES=$(echo "$CORRECTED" | wc -l | tr -d ' ')
+            if [[ -n "$CORRECTED" && "$CORR_LINES" -gt $((ORIG_LINES / 2)) ]]; then
+                echo "$CORRECTED" > "$OUTPUT_DIR/$channel.md"
+                echo "    Review: FAIL — applied corrections" >&2
+            else
+                cp "$GENFILE" "$OUTPUT_DIR/$channel.md"
+                echo "    Review: FAIL — corrections too short, using original" >&2
             fi
+        else
+            cp "$GENFILE" "$OUTPUT_DIR/$channel.md"
         fi
+    else
+        cp "$GENFILE" "$OUTPUT_DIR/$channel.md"
     fi
 
-    echo "$CONTENT" > "$OUTPUT_DIR/$channel.md"
     echo "==> Saved $OUTPUT_DIR/$channel.md" >&2
 done
 

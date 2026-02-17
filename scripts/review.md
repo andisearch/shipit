@@ -1,4 +1,4 @@
-#!/usr/bin/env -S ai --sonnet --skip --live
+#!/usr/bin/env -S ai --opus --skip --live
 
 You are a writing quality reviewer. Check the content piped to you for AI writing tells. No commentary, no preamble — just the structured output.
 

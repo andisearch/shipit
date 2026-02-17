@@ -1,35 +1,31 @@
 ---
-title: "Anthropic Python SDK v0.79: fast mode for Opus 4.6, structured outputs, and tool runner improvements"
-created: 2026-02-16T12:00
+title: "Anthropic Python SDK v0.79 — fast mode for Opus 4.6, structured outputs, and tool runner improvements"
+created: 2026-02-16T10:00
 platform: reddit
 status: draft
 tags:
   - python
   - anthropic
   - sdk
-  - claude
+  - llm
   - api
 ---
 
-**TL;DR:** The Anthropic Python SDK has had a bunch of updates recently — structured outputs via `output_config`, a `@beta_tool` decorator that handles tool execution loops automatically, fast mode for Opus 4.6, and adaptive thinking. Figured I'd share what's new since most of these shipped without much fanfare.
+**TL;DR:** The Anthropic Python SDK has had a bunch of updates recently: structured outputs via `output_config`, a `@beta_tool` decorator that turns plain Python functions into tool definitions, and a new `speed` parameter for fast mode on Claude Opus 4.6. Figured I'd share some of the highlights since the changelog moves fast.
 
 ## What the SDK actually does
 
-`anthropic` is the official typed Python client for the Anthropic REST API. Sync and async clients, streaming, tool use, batches, token counting, plus Bedrock and Vertex integrations. Built on httpx and Pydantic.
+It's a typed Python wrapper around the Anthropic REST API. You get sync and async clients, streaming, tool use, batching, and token counting, plus separate clients for AWS Bedrock and Google Vertex AI. Built on `httpx` and `pydantic`, it supports Python 3.9+.
 
 ```sh
 pip install anthropic
 ```
 
-## What's new
+## Recent changes worth knowing about
 
-### Structured outputs
+**Structured outputs** (v0.77): You can now pass `output_config` to get responses formatted to a JSON schema. No more prompt-engineering your way to valid JSON.
 
-You can now pass `output_config` to get JSON schema-enforced responses directly from the API, instead of hoping the model follows your formatting instructions. Landed in v0.77.
-
-### Tool runner with `@beta_tool`
-
-The decorator approach cuts down on boilerplate compared to manually defining tool schemas. The runner handles the call-respond loop for you:
+**Tool use with decorators** (v0.76+): The `@beta_tool` decorator pulls type hints and docstrings from your function to build the tool schema automatically. The `tool_runner` handles the back-and-forth loop of tool calls for you:
 
 ```python
 import json
@@ -56,15 +52,11 @@ for message in runner:
     print(message)
 ```
 
-It pulls the schema from your function signature and docstring, calls the model, executes the tool when requested, feeds the result back, and loops until the model is done. Server-side tools are also supported now (v0.76).
+**Fast mode** (v0.79): Claude Opus 4.6 now supports a `speed` parameter. Haven't benchmarked it extensively yet but the latency difference is noticeable on longer generations.
 
-### Fast mode
+## Streaming
 
-v0.79 added a `speed` parameter for Opus 4.6. Same model, faster output when you don't need maximum deliberation.
-
-### Streaming
-
-The `.stream()` helper accumulates text and gives you SDK-level events, which is nicer than parsing raw SSE yourself:
+The streaming API has a nice helper that accumulates text for you:
 
 ```python
 import asyncio
@@ -84,28 +76,15 @@ async def main():
 asyncio.run(main())
 ```
 
-### Token counting
+## Other bits
 
-Pre-flight token counts without burning an API call:
+- Token counting without creating a message: `client.messages.count_tokens()`
+- Auto-pagination on list endpoints
+- Configurable retries with exponential backoff (defaults to 2 retries)
+- Bedrock and Vertex clients share the same interface, just different auth
 
-```python
-count = client.messages.count_tokens(
-    model="claude-sonnet-4-5-20250929",
-    messages=[{"role": "user", "content": "Hello, world"}],
-)
-print(count.input_tokens)  # 10
-```
-
-## Additional features
-
-- Automatic retries with exponential backoff on 429s and 5xx
-- Auto-paginating iterators for list endpoints
-- File uploads via `client.beta.files.upload()`
-- Citation content blocks
-- Bedrock and Vertex clients handle their own auth flows separately
-
-Full changelog and docs are on the [GitHub repo](https://github.com/anthropics/anthropic-sdk-python).
+Full source and docs: the SDK repo has examples for most of these patterns.
 
 ## Question
 
-For those using the SDK in production — are you doing anything interesting with the tool runner, or still wiring up tool calls manually? Curious whether people are hitting limitations with the `@beta_tool` approach or if it covers most use cases.
+For those of you using tool use in production — how are you handling tool schemas? Writing them by hand, generating from types, or using something like the `@beta_tool` decorator? Curious whether people prefer explicit schema definitions or the decorator approach.
