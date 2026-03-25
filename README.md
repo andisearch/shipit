@@ -12,7 +12,7 @@
 
 ShipIt reads your repo (README, CHANGELOG, git log, package manifests), builds a structured briefing, then generates platform-specific content for release notes, a blog post, an X/Twitter thread, a LinkedIn post, and a Reddit post. With `--open`, it loads each draft into your browser's compose UI for review before posting.
 
-Built for the [Cerebral Valley + Anthropic "Built with Opus 4.6" hackathon](https://cerebralvalley.ai/e/claude-code-hackathon). Problem statement: "Build a Tool That Should Exist."
+Built with [AIRun](https://github.com/andisearch/airun) executable markdown and Claude Opus 4.6. Each stage is a separate `.md` file connected by Unix pipes.
 
 ## Prerequisites
 
@@ -77,8 +77,6 @@ output/
   linkedin.md     # LinkedIn post with first-comment link
   reddit.md       # Reddit post with TL;DR
 ```
-
-<!-- TODO: Add example output snippets for 1-2 channels -->
 
 ## What It Generates
 
@@ -156,8 +154,6 @@ With `--open`, ShipIt opens each platform's compose UI in a separate tab and fil
 Prerequisites:
 - Chrome open with [Claude in Chrome](https://chromewebstore.google.com/detail/claude-in-chrome) extension installed
 - Logged into your social accounts
-
-<!-- TODO: Add demo GIF of Chrome posting flow -->
 
 ## Adding a Channel
 
